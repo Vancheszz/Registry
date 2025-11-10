@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Toaster, toast } from 'react-hot-toast';
-import { Calendar, Users, ArrowRightLeft, Clock, LogOut, Package } from 'lucide-react';
-import ShiftsPage from './pages/ShiftsPage.tsx';
+import { CalendarClock, Users, FileText, HeartPulse, LogOut, Pill, ClipboardList } from 'lucide-react';
+import AppointmentsPage from './pages/AppointmentsPage.tsx';
 import UsersPage from './pages/UsersPage.tsx';
 import HandoversPage from './pages/HandoversPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
 import AssetsPage from './pages/AssetsPage.tsx';
 import LoginPage from './pages/LoginPage.tsx';
+import PatientsPage from './pages/PatientsPage.tsx';
 import { authService } from './services/auth.ts';
 import { LoginUser, CreateUser, User } from './types';
 
@@ -17,11 +18,12 @@ function Navigation({ currentUser, onLogout }: { currentUser: User | null; onLog
   const isActive = (path: string) => location.pathname === path;
   
   const navItems = [
-    { path: '/', label: 'Дашборд', icon: Clock },
-    { path: '/shifts', label: 'Смены', icon: Calendar },
-    { path: '/users', label: 'Сотрудники', icon: Users },
-    { path: '/handovers', label: 'Передачи смен', icon: ArrowRightLeft },
-    { path: '/assets', label: 'Активы', icon: Package },
+    { path: '/', label: 'Дашборд', icon: HeartPulse },
+    { path: '/patients', label: 'Пациенты', icon: ClipboardList },
+    { path: '/appointments', label: 'Приёмы', icon: CalendarClock },
+    { path: '/users', label: 'Команда', icon: Users },
+    { path: '/handovers', label: 'Журнал наблюдений', icon: FileText },
+    { path: '/assets', label: 'Медицинские кейсы', icon: Pill },
   ];
 
   return (
@@ -30,7 +32,7 @@ function Navigation({ currentUser, onLogout }: { currentUser: User | null; onLog
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">Управление сменами</h1>
+              <h1 className="text-xl font-bold text-gray-900">Медицинская регистратура</h1>
             </div>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
               {navItems.map(({ path, label, icon: Icon }) => (
@@ -134,9 +136,15 @@ function App() {
 
   const handleRegister = async (userData: CreateUser) => {
     try {
-      toast.error('Регистрация временно отключена. Обратитесь к администратору.');
-      throw new Error('Registration disabled');
+      await authService.register(userData);
+      await authService.login({ username: userData.username, password: userData.password });
+      const user = await authService.getCurrentUser();
+      setCurrentUser(user);
+      setIsAuthenticated(true);
+      toast.success('Регистрация завершена! Добро пожаловать.');
     } catch (error) {
+      console.error('Registration error:', error);
+      toast.error('Не удалось создать аккаунт. Попробуйте другой логин.');
       throw error;
     }
   };
@@ -167,12 +175,13 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-emerald-50">
         <Navigation currentUser={currentUser} onLogout={handleLogout} />
         <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/shifts" element={<ShiftsPage />} />
+            <Route path="/patients" element={<PatientsPage />} />
+            <Route path="/appointments" element={<AppointmentsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/handovers" element={<HandoversPage />} />
             <Route path="/assets" element={<AssetsPage />} />

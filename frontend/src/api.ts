@@ -1,5 +1,20 @@
 import axios from 'axios';
-import { User, Shift, Handover, Asset, CreateUser, CreateShift, CreateHandover, CreateAsset, UpdateAsset, UpdateProfile } from './types.ts';
+import {
+  User,
+  Shift,
+  Handover,
+  Asset,
+  CreateUser,
+  CreateShift,
+  CreateHandover,
+  CreateAsset,
+  UpdateAsset,
+  UpdateProfile,
+  Patient,
+  CreatePatient,
+  UpdatePatient,
+  DashboardSummary,
+} from './types.ts';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -86,8 +101,26 @@ export const handoversApi = {
     api.put(`/api/handovers/${id}`, handover).then(res => res.data),
   delete: (id: number): Promise<void> => api.delete(`/api/handovers/${id}`).then(() => {}),
   export: (): Promise<any> => api.get('/api/handovers/export').then(res => res.data),
-  clear: (): Promise<{message: string, deleted_count: number}> => 
+  clear: (): Promise<{message: string, deleted_count: number}> =>
     api.delete('/api/handovers/clear').then(res => res.data),
+};
+
+// Patients API
+export const patientsApi = {
+  getAll: (search?: string): Promise<Patient[]> => {
+    const params = search ? { params: { search } } : undefined;
+    return api.get('/api/patients/', params).then(res => res.data);
+  },
+  getById: (id: number): Promise<Patient> => api.get(`/api/patients/${id}`).then(res => res.data),
+  create: (patient: CreatePatient): Promise<Patient> => api.post('/api/patients/', patient).then(res => res.data),
+  update: (id: number, patient: UpdatePatient): Promise<Patient> =>
+    api.put(`/api/patients/${id}`, patient).then(res => res.data),
+  delete: (id: number): Promise<void> => api.delete(`/api/patients/${id}`).then(() => {}),
+};
+
+// Dashboard API
+export const dashboardApi = {
+  getSummary: (): Promise<DashboardSummary> => api.get('/api/dashboard/summary').then(res => res.data),
 };
 
 export default api;

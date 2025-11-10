@@ -155,6 +155,8 @@ data/
 logs/
 ssl/
 backups/
+!backend/data/
+!backend/data/.gitkeep
 
 # Build outputs
 # frontend/build/

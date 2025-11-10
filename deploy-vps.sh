@@ -146,7 +146,7 @@ DOMAIN=${DOMAIN:-${SERVER_IP}}
 REACT_APP_API_URL=http://${SERVER_IP}:8000
 
 # Database Configuration
-DATABASE_URL=sqlite:///./data/shifts.db
+DATABASE_URL=sqlite:///./data/clinic.db
 
 # Production Settings
 NODE_ENV=production
@@ -211,7 +211,7 @@ setup_firewall() {
 
 # Function to build and deploy
 deploy_application() {
-    log "Deploying Shift Management System..."
+    log "Deploying Clinic Registry Platform..."
     
     # Stop existing containers
     docker-compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
@@ -252,9 +252,9 @@ deploy_application() {
 setup_systemd_service() {
     log "Setting up systemd service..."
     
-    sudo tee /etc/systemd/system/shift-management.service > /dev/null <<EOF
+    sudo tee /etc/systemd/system/clinic-registry.service > /dev/null <<EOF
 [Unit]
-Description=Shift Management System
+Description=Clinic Registry Platform
 Requires=docker.service
 After=docker.service
 
@@ -274,7 +274,7 @@ EOF
     
     # Reload systemd and enable service
     sudo systemctl daemon-reload
-    sudo systemctl enable shift-management.service
+    sudo systemctl enable clinic-registry.service
     
     log "Systemd service configured successfully!"
 }
@@ -286,10 +286,10 @@ create_backup_script() {
     cat > backup.sh << 'EOF'
 #!/bin/bash
 
-# Backup script for Shift Management System
+# Backup script for Clinic Registry Platform
 BACKUP_DIR="./backups"
 DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="shift_management_backup_${DATE}.tar.gz"
+BACKUP_FILE="clinic_registry_backup_${DATE}.tar.gz"
 
 echo "Creating backup: $BACKUP_FILE"
 
@@ -303,7 +303,7 @@ tar -czf "${BACKUP_DIR}/${BACKUP_FILE}" \
 echo "Backup created: ${BACKUP_DIR}/${BACKUP_FILE}"
 
 # Clean old backups (keep last 30 days)
-find "${BACKUP_DIR}" -name "shift_management_backup_*.tar.gz" -mtime +30 -delete
+find "${BACKUP_DIR}" -name "clinic_registry_backup_*.tar.gz" -mtime +30 -delete
 
 echo "Old backups cleaned up"
 EOF
@@ -341,7 +341,7 @@ show_status() {
     echo "   Backup:   ./backup.sh"
     echo ""
     echo "📁 Important Directories:"
-    echo "   Database: ./data/shifts.db"
+    echo "   Database: ./data/clinic.db"
     echo "   Logs:     ./logs/"
     echo "   SSL:      ./ssl/"
     echo "   Backups:  ./backups/"
@@ -361,7 +361,7 @@ show_status() {
 
 # Main execution
 main() {
-    log "🚀 Starting deployment of Shift Management System on Ubuntu 24.04..."
+    log "🚀 Starting deployment of Clinic Registry Platform on Ubuntu 24.04..."
     
     # Perform checks
     check_root

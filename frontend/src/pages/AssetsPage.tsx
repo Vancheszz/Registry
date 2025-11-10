@@ -35,7 +35,7 @@ export default function AssetsPage() {
       const data = await assetsApi.getAll(params.toString());
       setAssets(data);
     } catch (error) {
-      console.error('Ошибка загрузки активов:', error);
+      console.error('Ошибка загрузки кейсов:', error);
     } finally {
       setLoading(false);
     }
@@ -79,7 +79,7 @@ export default function AssetsPage() {
       resetForm();
       loadAssets();
     } catch (error) {
-      console.error('Ошибка создания актива:', error);
+      console.error('Ошибка создания кейса:', error);
     } finally {
       setLoading(false);
     }
@@ -97,21 +97,21 @@ export default function AssetsPage() {
       resetForm();
       loadAssets();
     } catch (error) {
-      console.error('Ошибка обновления актива:', error);
+      console.error('Ошибка обновления кейса:', error);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteAsset = async (assetId: number) => {
-    if (!window.confirm('Вы уверены, что хотите удалить этот актив?')) return;
+    if (!window.confirm('Удалить медицинский кейс?')) return;
 
     try {
       setLoading(true);
       await assetsApi.delete(assetId);
       loadAssets();
     } catch (error) {
-      console.error('Ошибка удаления актива:', error);
+      console.error('Ошибка удаления кейса:', error);
     } finally {
       setLoading(false);
     }
@@ -128,10 +128,10 @@ export default function AssetsPage() {
 
   const getTypeDisplay = (type: string) => {
     switch (type) {
-      case 'CASE': return 'CASE';
-      case 'CHANGE_MANAGEMENT': return 'Change Management';
-      case 'ORANGE_CASE': return 'Orange CASE';
-      case 'CLIENT_REQUESTS': return 'Обращения клиентов';
+      case 'CASE': return 'Клинический случай';
+      case 'CHANGE_MANAGEMENT': return 'Изменения плана лечения';
+      case 'ORANGE_CASE': return 'Экстренный кейс';
+      case 'CLIENT_REQUESTS': return 'Обращения пациентов';
       default: return type;
     }
   };
@@ -139,13 +139,13 @@ export default function AssetsPage() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Активы</h1>
+        <h1 className="text-2xl font-bold">Медицинские кейсы</h1>
         <button
           onClick={openCreateModal}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
         >
           <Plus size={20} />
-          Создать актив
+          Новый кейс
         </button>
       </div>
 
@@ -156,7 +156,7 @@ export default function AssetsPage() {
           <div className="flex-1 max-w-md relative">
             <input
               type="text"
-              placeholder="Поиск по названию актива..."
+              placeholder="Поиск по названию кейса..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full border rounded-lg px-3 py-2 pl-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -178,10 +178,10 @@ export default function AssetsPage() {
             className="border rounded-lg px-3 py-2"
           >
             <option value="">Все типы</option>
-            <option value="CASE">CASE</option>
-            <option value="CHANGE_MANAGEMENT">Change Management</option>
-            <option value="ORANGE_CASE">Orange CASE</option>
-            <option value="CLIENT_REQUESTS">Обращения клиентов</option>
+            <option value="CASE">Клинический случай</option>
+            <option value="CHANGE_MANAGEMENT">Изменения плана лечения</option>
+            <option value="ORANGE_CASE">Экстренный кейс</option>
+            <option value="CLIENT_REQUESTS">Обращения пациентов</option>
           </select>
           <select
             value={filterStatus}
@@ -189,14 +189,14 @@ export default function AssetsPage() {
             className="border rounded-lg px-3 py-2"
           >
             <option value="">Все статусы</option>
-            <option value="Active">Активен</option>
+            <option value="Active">В работе</option>
             <option value="Completed">Завершён</option>
-            <option value="On Hold">На удержании</option>
+            <option value="On Hold">Приостановлен</option>
           </select>
         </div>
       </div>
 
-      {/* Список активов */}
+      {/* Список кейсов */}
       {loading ? (
         <div className="text-center py-8">Загрузка...</div>
       ) : (
@@ -239,9 +239,9 @@ export default function AssetsPage() {
               </p>
               <div className="flex gap-2 items-center">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(asset.status)}`}>
-                  {asset.status === 'Active' ? 'Активен' : 
-                   asset.status === 'Completed' ? 'Завершён' : 
-                   asset.status === 'On Hold' ? 'На удержании' : asset.status}
+                  {asset.status === 'Active' ? 'В работе' :
+                   asset.status === 'Completed' ? 'Завершён' :
+                   asset.status === 'On Hold' ? 'Приостановлен' : asset.status}
                 </span>
                 <span className={`text-sm px-2 py-0.5 rounded-full ${
                   asset.asset_type === 'CASE' ? 'bg-blue-100 text-blue-700' :
@@ -264,7 +264,7 @@ export default function AssetsPage() {
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
           <div className="bg-white rounded-lg p-6 w-full max-w-none resizable-modal modal-panel">
-            <h2 className="text-xl font-bold mb-4">Создать актив</h2>
+            <h2 className="text-xl font-bold mb-4">Создать медицинский кейс</h2>
             <form onSubmit={handleCreateAsset}>
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-2">Название *</label>
@@ -294,10 +294,10 @@ export default function AssetsPage() {
                   value={formData.asset_type}
                   onChange={(e) => setFormData({ ...formData, asset_type: e.target.value as any })}
                 >
-                  <option value="CASE">CASE</option>
-                  <option value="CHANGE_MANAGEMENT">Change Management</option>
-                  <option value="ORANGE_CASE">Orange CASE</option>
-                  <option value="CLIENT_REQUESTS">Обращения клиентов</option>
+                  <option value="CASE">Клинический случай</option>
+                  <option value="CHANGE_MANAGEMENT">Изменения плана лечения</option>
+                  <option value="ORANGE_CASE">Экстренный кейс</option>
+                  <option value="CLIENT_REQUESTS">Обращения пациентов</option>
                 </select>
               </div>
               <div className="mb-6">
@@ -308,9 +308,9 @@ export default function AssetsPage() {
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
                 >
-                  <option value="Active">Активен</option>
+                  <option value="Active">В работе</option>
                   <option value="Completed">Завершён</option>
-                  <option value="On Hold">На удержании</option>
+                  <option value="On Hold">Приостановлен</option>
                 </select>
               </div>
               <div className="flex gap-2">
@@ -338,7 +338,7 @@ export default function AssetsPage() {
       {showEditModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
           <div className="bg-white rounded-lg p-6 w-full max-w-none resizable-modal modal-panel">
-            <h2 className="text-xl font-bold mb-4">Редактировать актив</h2>
+            <h2 className="text-xl font-bold mb-4">Редактировать медицинский кейс</h2>
             <form onSubmit={handleUpdateAsset}>
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-2">Название *</label>
@@ -382,9 +382,9 @@ export default function AssetsPage() {
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
                 >
-                  <option value="Active">Активен</option>
+                  <option value="Active">В работе</option>
                   <option value="Completed">Завершён</option>
-                  <option value="On Hold">На удержании</option>
+                  <option value="On Hold">Приостановлен</option>
                 </select>
               </div>
               <div className="flex gap-2">
@@ -408,7 +408,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {/* Полноэкранный просмотр актива */}
+      {/* Полноэкранный просмотр кейса */}
       {fullscreenAsset && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 modal-overlay">
           <div className="bg-white rounded-lg p-6 w-full max-w-none max-h-[85vh] overflow-y-auto resizable-modal modal-panel">

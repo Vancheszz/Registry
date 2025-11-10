@@ -3,7 +3,7 @@
 # Deployment script for Ubuntu VPS
 set -e
 
-echo "🚀 Starting deployment of Shift Management System..."
+echo "🚀 Starting deployment of Clinic Registry Platform..."
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
@@ -24,15 +24,16 @@ fi
 
 # Create necessary directories
 echo "📁 Creating directories..."
-sudo mkdir -p /var/log/shift-management
+sudo mkdir -p /var/log/clinic-registry
 sudo mkdir -p ./ssl
+mkdir -p ./data
 
 # Set up environment variables
 if [ ! -f .env ]; then
     echo "📝 Creating .env file..."
     cat > .env << EOF
 # Database
-DATABASE_URL=sqlite:///./shifts.db
+DATABASE_URL=sqlite:///./data/clinic.db
 
 # API Configuration
 API_HOST=0.0.0.0
@@ -85,9 +86,9 @@ fi
 
 # Setup auto-start on boot
 echo "🔄 Setting up auto-start on boot..."
-sudo tee /etc/systemd/system/shift-management.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/clinic-registry.service > /dev/null <<EOF
 [Unit]
-Description=Shift Management System
+Description=Clinic Registry Platform
 Requires=docker.service
 After=docker.service
 
@@ -103,7 +104,7 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl enable shift-management.service
+sudo systemctl enable clinic-registry.service
 echo "✅ Auto-start configured."
 
 # Show status

@@ -1,4 +1,4 @@
-import { LoginUser, AuthToken, User } from '../types';
+import { LoginUser, AuthToken, User, CreateUser } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
 const TOKEN_KEY = 'access_token';
@@ -20,6 +20,23 @@ export const authService = {
     const data = await response.json();
     localStorage.setItem(TOKEN_KEY, data.access_token);
     return data;
+  },
+
+  async register(userData: CreateUser): Promise<User> {
+    const response = await fetch(`${API_BASE_URL}/api/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(userData),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || 'Registration failed');
+    }
+
+    return response.json();
   },
 
   logout(): void {

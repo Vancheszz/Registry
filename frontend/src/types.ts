@@ -20,6 +20,8 @@ export interface Shift {
   user_id: number;
   user_name: string;
   position: string;
+  patient_id?: number;
+  patient_name?: string;
   status: string;
   notes?: string;
   created_at: string;
@@ -94,6 +96,7 @@ export interface CreateShift {
   end_time: string;
   shift_type: string;
   user_id: number;
+  patient_id?: number;
   notes?: string;
 }
 
@@ -102,4 +105,52 @@ export interface CreateHandover {
   to_shift_id?: number;
   handover_notes: string;
   asset_ids: number[];
+}
+
+export interface Patient {
+  id: number;
+  full_name: string;
+  birth_date?: string;
+  gender?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  policy_number?: string;
+  blood_type?: string;
+  allergies?: string;
+  chronic_conditions?: string;
+  medications?: string;
+  attending_physician?: string;
+  last_visit?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePatient {
+  full_name: string;
+  birth_date?: string;
+  gender?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  policy_number?: string;
+  blood_type?: string;
+  allergies?: string;
+  chronic_conditions?: string;
+  medications?: string;
+  attending_physician?: string;
+  last_visit?: string;
+  notes?: string;
+}
+
+export interface UpdatePatient extends Partial<CreatePatient> {}
+
+export interface DashboardSummary {
+  total_patients: number;
+  total_staff: number;
+  active_cases: number;
+  upcoming_appointments: number;
+  next_appointments: Shift[];
+  recent_patients: Patient[];
 }

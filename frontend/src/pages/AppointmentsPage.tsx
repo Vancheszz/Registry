@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Edit, Trash2 } from 'lucide-react';
-import { shiftsApi, usersApi } from '../api.ts';
-import { Shift, User, CreateShift } from '../types';
+import { Plus, ChevronLeft, ChevronRight, Edit, Trash2, Stethoscope } from 'lucide-react';
+import { shiftsApi, usersApi, patientsApi } from '../api.ts';
+import { Shift, User, CreateShift, Patient } from '../types';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 
-const ShiftsPage: React.FC = () => {
+const AppointmentsPage: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
@@ -17,16 +18,50 @@ const ShiftsPage: React.FC = () => {
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<CreateShift>();
   const watchedShiftType = watch('shift_type');
+  const appointmentTypes: Record<string, { label: string; gradient: string; accent: string; dot: string }> = {
+    consultation: {
+      label: 'Консультация',
+      gradient: 'from-primary-50 to-emerald-50',
+      accent: 'text-primary-700',
+      dot: 'bg-primary-500',
+    },
+    diagnostics: {
+      label: 'Диагностика',
+      gradient: 'from-sky-50 to-blue-100',
+      accent: 'text-sky-700',
+      dot: 'bg-sky-500',
+    },
+    follow_up: {
+      label: 'Повторный визит',
+      gradient: 'from-violet-50 to-purple-100',
+      accent: 'text-violet-700',
+      dot: 'bg-violet-500',
+    },
+    procedure: {
+      label: 'Процедура',
+      gradient: 'from-amber-50 to-orange-100',
+      accent: 'text-amber-700',
+      dot: 'bg-amber-500',
+    },
+  };
+  const defaultAppointmentMeta = {
+    label: 'Приём',
+    gradient: 'from-slate-50 to-slate-100',
+    accent: 'text-slate-700',
+    dot: 'bg-slate-500',
+  };
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [shiftsData, usersData] = await Promise.all([
+      const [shiftsData, usersData, patientsData] = await Promise.all([
         shiftsApi.getAll(),
-        usersApi.getAllPublic()
+        usersApi.getAllPublic(),
+        patientsApi.getAll()
       ]);
       setShifts(shiftsData);
       setUsers(usersData);
+      setPatients(patientsData);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Ошибка загрузки данных');
@@ -68,25 +103,25 @@ const ShiftsPage: React.FC = () => {
     }
 
     if (now < shiftStart) {
-      return 'ожидание';
-    } else if (now >= shiftStart && now <= shiftEnd) {
-      return 'активна';
-    } else {
-      return 'завершена';
+      return 'ожидается';
     }
+    if (now >= shiftStart && now <= shiftEnd) {
+      return 'идёт';
+    }
+    return 'завершён';
   };
 
   // Функция для получения цвета статуса
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'активна':
-        return 'bg-green-100 text-green-800';
-      case 'ожидание':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'завершена':
-        return 'bg-gray-100 text-gray-800';
+      case 'идёт':
+        return 'bg-emerald-100 text-emerald-800';
+      case 'ожидается':
+        return 'bg-blue-100 text-blue-800';
+      case 'завершён':
+        return 'bg-slate-100 text-slate-700';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-slate-100 text-slate-700';
     }
   };
 
@@ -100,9 +135,6 @@ const ShiftsPage: React.FC = () => {
     
     // Определяем день недели первого дня месяца (0 = воскресенье, корректируем на понедельник = 0)
     const firstDayOfWeek = (firstDay.getDay() + 6) % 7;
-    
-    // Отладочная информация
-    console.log(`Месяц: ${month + 1}/${year}, Первый день: ${firstDay.toDateString()}, День недели: ${firstDayOfWeek}`);
     
     const days: (number | null)[] = [];
     
@@ -120,8 +152,6 @@ const ShiftsPage: React.FC = () => {
     while (days.length < 42) {
       days.push(null);
     }
-    
-    console.log(`Дни: ${days.slice(0, 14).map(d => d || 'X').join(' ')}`);
     
     return days;
   };
@@ -147,8 +177,10 @@ const ShiftsPage: React.FC = () => {
       date,
       user_id: 0,
       start_time: '09:00',
-      end_time: '21:00',
-      shift_type: 'day'
+      end_time: '09:30',
+      shift_type: 'consultation',
+      patient_id: undefined,
+      notes: '',
     });
     setShowModal(true);
   };
@@ -167,8 +199,10 @@ const ShiftsPage: React.FC = () => {
       date,
       user_id: 0,
       start_time: '09:00',
-      end_time: '21:00',
-      shift_type: 'day'
+      end_time: '09:30',
+      shift_type: 'consultation',
+      patient_id: undefined,
+      notes: '',
     });
     setShowModal(true);
   };
@@ -177,12 +211,15 @@ const ShiftsPage: React.FC = () => {
   const openEditModal = (shift: Shift) => {
     setEditingShift(shift);
     setIsMultipleMode(false);
+    const normalizedType = appointmentTypes[shift.shift_type] ? shift.shift_type : 'consultation';
     reset({
       date: shift.date,
       user_id: shift.user_id,
       start_time: shift.start_time,
       end_time: shift.end_time,
-      shift_type: shift.start_time === '09:00' ? 'day' : 'night'
+      shift_type: normalizedType,
+      patient_id: shift.patient_id,
+      notes: shift.notes,
     });
     setShowModal(true);
   };
@@ -190,21 +227,26 @@ const ShiftsPage: React.FC = () => {
   // Создание/обновление смены
   const handleCreateShift = async (data: CreateShift) => {
     try {
+      const payload: CreateShift = {
+        ...data,
+        patient_id: data.patient_id && data.patient_id > 0 ? data.patient_id : undefined,
+      };
+
       if (editingShift) {
-        await shiftsApi.update(editingShift.id, data);
-        toast.success('Смена обновлена');
+        await shiftsApi.update(editingShift.id, payload);
+        toast.success('Приём обновлён');
       } else if (isMultipleMode && selectedUsers.length > 0) {
         const shiftsToCreate = selectedUsers.map(userId => ({
-          ...data,
+          ...payload,
           user_id: userId
         }));
         await shiftsApi.createMultiple(shiftsToCreate);
-        toast.success(`Создано ${selectedUsers.length} смен`);
+        toast.success(`Запланировано ${selectedUsers.length} приёмов`);
       } else {
-        await shiftsApi.create(data);
-        toast.success('Смена создана');
+        await shiftsApi.create(payload);
+        toast.success('Приём создан');
       }
-      
+
       setShowModal(false);
       setEditingShift(null);
       setSelectedUsers([]);
@@ -218,13 +260,13 @@ const ShiftsPage: React.FC = () => {
 
   // Удаление смены
   const handleDeleteShift = async (shiftId: number) => {
-    if (!window.confirm('Вы уверены, что хотите удалить эту смену?')) {
+    if (!window.confirm('Удалить приём? Действие нельзя отменить.')) {
       return;
     }
 
     try {
       await shiftsApi.delete(shiftId);
-      toast.success('Смена удалена');
+      toast.success('Приём удалён');
       loadData();
     } catch (error) {
       console.error('Error deleting shift:', error);
@@ -234,12 +276,16 @@ const ShiftsPage: React.FC = () => {
 
   // Отслеживание изменений типа смены
   useEffect(() => {
-    if (watchedShiftType === 'day') {
-      setValue('start_time', '09:00');
-      setValue('end_time', '21:00');
-    } else if (watchedShiftType === 'night') {
-      setValue('start_time', '21:00');
-      setValue('end_time', '09:00');
+    const templates: Record<string, { start: string; end: string }> = {
+      consultation: { start: '09:00', end: '09:30' },
+      diagnostics: { start: '10:00', end: '11:00' },
+      follow_up: { start: '12:00', end: '12:30' },
+      procedure: { start: '14:00', end: '15:00' },
+    };
+
+    if (watchedShiftType && templates[watchedShiftType]) {
+      setValue('start_time', templates[watchedShiftType].start);
+      setValue('end_time', templates[watchedShiftType].end);
     }
   }, [watchedShiftType, setValue]);
 
@@ -269,21 +315,24 @@ const ShiftsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Управление сменами</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Расписание приёмов</h1>
+          <p className="text-sm text-gray-500 mt-1">Следите за загруженностью врачей и историей визитов пациентов</p>
+        </div>
         <div className="flex gap-2">
           <button
             onClick={() => openMultipleModal()}
             className="btn btn-secondary flex items-center gap-2"
           >
             <Plus size={20} />
-            Создать несколько смен
+            Назначить серию приёмов
           </button>
           <button
             onClick={() => openCreateModal()}
             className="btn btn-primary flex items-center gap-2"
           >
             <Plus size={20} />
-            Создать смену
+            Назначить приём
           </button>
         </div>
       </div>
@@ -308,7 +357,7 @@ const ShiftsPage: React.FC = () => {
       </div>
 
       {/* Календарная сетка */}
-      <div key={`calendar-container-${currentMonth.getFullYear()}-${currentMonth.getMonth()}`} className="bg-white rounded-lg shadow overflow-hidden" style={{ height: '816px' }}>
+        <div key={`calendar-container-${currentMonth.getFullYear()}-${currentMonth.getMonth()}`} className="bg-white rounded-lg shadow overflow-hidden" style={{ height: '816px' }}>
         {/* Заголовки дней недели */}
         <div className="grid grid-cols-7 bg-gray-50" style={{ height: '48px' }}>
           {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(day => (
@@ -332,11 +381,11 @@ const ShiftsPage: React.FC = () => {
               <div
                 key={`day-${currentMonth.getFullYear()}-${currentMonth.getMonth()}-${day}`}
                 className={`border border-gray-200 p-2 overflow-y-auto ${
-                  isToday ? 'bg-blue-50' : 'bg-white'
+                  isToday ? 'bg-primary-50' : 'bg-white'
                 } hover:bg-gray-50`}
               >
                 <div className="flex justify-between items-start mb-2">
-                  <span className={`text-sm font-medium ${isToday ? 'text-blue-600' : 'text-gray-900'}`}>
+                  <span className={`text-sm font-medium ${isToday ? 'text-primary-700' : 'text-gray-900'}`}>
                     {day}
                   </span>
                   <button
@@ -360,55 +409,56 @@ const ShiftsPage: React.FC = () => {
                     .map(shift => {
                     const user = users.find(u => u.id === shift.user_id);
                     const status = getShiftStatus(shift);
-                    const isDayShift = shift.shift_type === 'day';
-                    
+                    const meta = appointmentTypes[shift.shift_type] || defaultAppointmentMeta;
+
                     return (
                       <div
                         key={shift.id}
-                        className={`text-xs p-2 rounded-lg border-2 hover:shadow-md transition-all duration-200 ${
-                          isDayShift 
-                            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200' 
-                            : 'bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200'
-                        }`}
+                        className={`text-xs p-3 rounded-lg border-2 border-white/60 bg-gradient-to-r ${meta.gradient} hover:shadow-md transition-all duration-200`}
                       >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <div className={`w-1.5 h-1.5 rounded-full ${
-                                isDayShift ? 'bg-blue-500' : 'bg-purple-500'
-                              }`}></div>
-                              <p className="font-semibold text-gray-900 text-xs leading-tight truncate">
-                                {user?.name || 'Неизвестно'}
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}></span>
+                              <p className={`font-semibold text-xs leading-tight truncate ${meta.accent}`}>
+                                {meta.label}
                               </p>
                             </div>
-                            <p className="text-gray-700 text-xs font-medium mb-1">
-                              {shift.start_time} - {shift.end_time}
+                            <p className="text-xs text-gray-600">
+                              <span className="font-semibold text-gray-800">Врач:</span> {user?.name || 'Неизвестно'}
                             </p>
-                            <div className="flex items-center gap-1.5">
-                              <span className={`inline-block px-1.5 py-0.5 text-xs rounded-full font-medium ${getStatusColor(status)}`}>
-                                {status}
-                              </span>
-                              <span className={`text-xs font-medium ${
-                                isDayShift ? 'text-blue-700' : 'text-purple-700'
-                              }`}>
-                                {isDayShift ? 'День' : 'Ночь'}
-                              </span>
-                            </div>
+                            {shift.patient_name ? (
+                              <p className="text-xs text-gray-600 flex items-center gap-1">
+                                <Stethoscope className="w-3 h-3 text-primary-500" />
+                                {shift.patient_name}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-400">Пациент не назначен</p>
+                            )}
+                            <p className="text-xs text-gray-600">
+                              {shift.start_time} – {shift.end_time}
+                            </p>
+                            {shift.notes && (
+                              <p className="text-xs text-gray-500 italic line-clamp-2">{shift.notes}</p>
+                            )}
+                            <span className={`inline-block px-1.5 py-0.5 text-[11px] rounded-full font-medium ${getStatusColor(status)}`}>
+                              {status}
+                            </span>
                           </div>
-                          <div className="flex gap-0.5 ml-1">
+                          <div className="flex gap-1 ml-1">
                             <button
                               onClick={() => openEditModal(shift)}
-                              className="text-blue-600 hover:text-blue-800 p-0.5 rounded hover:bg-blue-50 transition-colors"
+                              className="text-primary-700 hover:text-primary-900 p-1 rounded hover:bg-white/60 transition-colors"
                               title="Редактировать"
                             >
-                              <Edit size={10} />
+                              <Edit size={12} />
                             </button>
                             <button
                               onClick={() => handleDeleteShift(shift.id)}
-                              className="text-red-600 hover:text-red-800 p-0.5 rounded hover:bg-red-50 transition-colors"
+                              className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-white/60 transition-colors"
                               title="Удалить"
                             >
-                              <Trash2 size={10} />
+                              <Trash2 size={12} />
                             </button>
                           </div>
                         </div>
@@ -427,13 +477,13 @@ const ShiftsPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
           <div className="bg-white rounded-lg p-6 w-full max-w-none resizable-modal modal-panel">
             <h2 className="text-xl font-bold mb-4">
-              {editingShift ? 'Редактировать смену' : 
-               isMultipleMode ? 'Создать несколько смен' : 'Создать смену'}
+              {editingShift ? 'Редактировать приём' :
+               isMultipleMode ? 'Назначить серию приёмов' : 'Назначить приём'}
             </h2>
             <form onSubmit={handleSubmit(handleCreateShift)}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Дата *</label>
+                  <label className="block text-sm font-medium mb-2">Дата приёма *</label>
                   <input
                     type="date"
                     {...register('date', { required: 'Дата обязательна' })}
@@ -445,13 +495,15 @@ const ShiftsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">Тип смены *</label>
+                  <label className="block text-sm font-medium mb-2">Тип приёма *</label>
                   <select
-                    {...register('shift_type', { required: 'Тип смены обязателен' })}
+                    {...register('shift_type', { required: 'Тип приёма обязателен' })}
                     className="w-full border rounded-lg px-3 py-2"
                   >
-                    <option value="day">Дневная (09:00-21:00)</option>
-                    <option value="night">Ночная (21:00-09:00)</option>
+                    <option value="consultation">Консультация</option>
+                    <option value="diagnostics">Диагностика</option>
+                    <option value="follow_up">Повторный визит</option>
+                    <option value="procedure">Процедура / манипуляция</option>
                   </select>
                   {errors.shift_type && (
                     <p className="text-red-500 text-sm mt-1">{errors.shift_type.message}</p>
@@ -460,7 +512,7 @@ const ShiftsPage: React.FC = () => {
 
                 {isMultipleMode ? (
                   <div>
-                    <label className="block text-sm font-medium mb-2">Сотрудники *</label>
+                    <label className="block text-sm font-medium mb-2">Врачи *</label>
                     <div className="max-h-40 overflow-y-auto border rounded-lg p-2">
                       {users.map(user => (
                         <label key={user.id} className="flex items-center space-x-2 p-1">
@@ -483,11 +535,11 @@ const ShiftsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-medium mb-2">Сотрудник *</label>
+                    <label className="block text-sm font-medium mb-2">Врач *</label>
                     <select
-                      {...register('user_id', { 
-                        required: 'Сотрудник обязателен',
-                        valueAsNumber: true 
+                      {...register('user_id', {
+                        required: 'Врач обязателен',
+                        valueAsNumber: true
                       })}
                       className="w-full border rounded-lg px-3 py-2"
                     >
@@ -506,7 +558,7 @@ const ShiftsPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-2">Начало смены</label>
+                    <label className="block text-sm font-medium mb-2">Начало</label>
                     <input
                       type="time"
                       {...register('start_time')}
@@ -514,7 +566,7 @@ const ShiftsPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-2">Конец смены</label>
+                    <label className="block text-sm font-medium mb-2">Окончание</label>
                     <input
                       type="time"
                       {...register('end_time')}
@@ -522,16 +574,41 @@ const ShiftsPage: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Пациент</label>
+                  <select
+                    {...register('patient_id', { valueAsNumber: true })}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="">Выберите пациента</option>
+                    {patients.map(patient => (
+                      <option key={patient.id} value={patient.id}>
+                        {patient.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Комментарий для приёма</label>
+                  <textarea
+                    {...register('notes')}
+                    className="w-full border rounded-lg px-3 py-2 resize-vertical"
+                    rows={3}
+                    placeholder="Напоминания для врача или важные детали для пациента"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 mt-6">
                 <button
                   type="submit"
                   disabled={loading || (isMultipleMode && selectedUsers.length === 0)}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="flex-1 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
                 >
-                  {editingShift ? 'Обновить' : 
-                   isMultipleMode ? `Создать ${selectedUsers.length} смен` : 'Создать'}
+                  {editingShift ? 'Сохранить изменения' :
+                   isMultipleMode ? `Запланировать ${selectedUsers.length} приёмов` : 'Сохранить'}
                 </button>
                 <button
                   type="button"
@@ -549,4 +626,4 @@ const ShiftsPage: React.FC = () => {
   );
 };
 
-export default ShiftsPage;
+export default AppointmentsPage;

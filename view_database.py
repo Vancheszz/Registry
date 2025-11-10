@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Скрипт для просмотра содержимого базы данных shifts.db
+Скрипт для просмотра содержимого базы данных clinic.db
 Используйте: python view_database.py
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime
 
 def connect_to_db():
     """Подключение к базе данных"""
-    db_path = "backend/shifts.db"
+    db_path = "backend/data/clinic.db"
     if not os.path.exists(db_path):
         print(f"❌ Файл базы данных не найден: {db_path}")
         return None
@@ -84,7 +84,7 @@ def show_recent_data(conn, table_name, limit=5):
 
 def get_database_size():
     """Получить размер базы данных"""
-    db_path = "backend/shifts.db"
+    db_path = "backend/data/clinic.db"
     if os.path.exists(db_path):
         size = os.path.getsize(db_path)
         if size < 1024:
@@ -96,7 +96,7 @@ def get_database_size():
     return "Неизвестно"
 
 def main():
-    print("🗄️  ПРОСМОТР БАЗЫ ДАННЫХ СИСТЕМЫ ПЕРЕДАЧ СМЕН")
+    print("🗄️  ПРОСМОТР БАЗЫ ДАННЫХ РЕГИСТРАТУРЫ КЛИНИКИ")
     print("=" * 50)
     
     # Информация о файле

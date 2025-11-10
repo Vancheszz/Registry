@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, func, or_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shifts.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./clinic.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -43,17 +43,41 @@ class User(Base):
 
 class Shift(Base):
     __tablename__ = "shifts"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     date = Column(String, nullable=False)  # YYYY-MM-DD format
     start_time = Column(String, nullable=False)  # HH:MM format
     end_time = Column(String, nullable=False)  # HH:MM format
-    shift_type = Column(String, nullable=False)  # day, night, etc.
+    shift_type = Column(String, nullable=False)  # appointment type (consultation, follow-up, etc.)
     user_id = Column(Integer, nullable=False)
     user_name = Column(String, nullable=False)
     position = Column(String, nullable=False)
-    status = Column(String, default="active")  # active, completed, cancelled
+    patient_id = Column(Integer, nullable=True)
+    patient_name = Column(String, nullable=True)
+    status = Column(String, default="scheduled")  # scheduled, completed, cancelled
     notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Patient(Base):
+    __tablename__ = "patients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String, nullable=False)
+    birth_date = Column(String, nullable=True)
+    gender = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    policy_number = Column(String, nullable=True)
+    blood_type = Column(String, nullable=True)
+    allergies = Column(Text, nullable=True)
+    chronic_conditions = Column(Text, nullable=True)
+    medications = Column(Text, nullable=True)
+    attending_physician = Column(String, nullable=True)
+    last_visit = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -129,6 +153,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+def parse_optional_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        if len(value) == 10:
+            return datetime.strptime(value, "%Y-%m-%d")
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
 
 # Pydantic Models
 class UserCreate(BaseModel):
@@ -180,6 +214,7 @@ class ShiftCreate(BaseModel):
     end_time: str
     shift_type: str
     user_id: int
+    patient_id: Optional[int] = None
     notes: Optional[str] = None
 
 class ShiftResponse(BaseModel):
@@ -191,13 +226,69 @@ class ShiftResponse(BaseModel):
     user_id: int
     user_name: str
     position: str
+    patient_id: Optional[int]
+    patient_name: Optional[str]
     status: str
     notes: Optional[str]
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
+
+
+class PatientCreate(BaseModel):
+    full_name: str
+    birth_date: Optional[str] = None
+    gender: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    policy_number: Optional[str] = None
+    blood_type: Optional[str] = None
+    allergies: Optional[str] = None
+    chronic_conditions: Optional[str] = None
+    medications: Optional[str] = None
+    attending_physician: Optional[str] = None
+    last_visit: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PatientUpdate(PatientCreate):
+    pass
+
+
+class PatientResponse(BaseModel):
+    id: int
+    full_name: str
+    birth_date: Optional[str]
+    gender: Optional[str]
+    phone: Optional[str]
+    email: Optional[str]
+    address: Optional[str]
+    policy_number: Optional[str]
+    blood_type: Optional[str]
+    allergies: Optional[str]
+    chronic_conditions: Optional[str]
+    medications: Optional[str]
+    attending_physician: Optional[str]
+    last_visit: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DashboardSummary(BaseModel):
+    total_patients: int
+    total_staff: int
+    active_cases: int
+    upcoming_appointments: int
+    next_appointments: List[ShiftResponse]
+    recent_patients: List[PatientResponse]
+
 
 class AssetCreate(BaseModel):
     title: str
@@ -290,7 +381,7 @@ class HandoverLogResponse(BaseModel):
 Base.metadata.create_all(bind=engine)
 
 # FastAPI app
-app = FastAPI(title="Shift Management API", version="1.0.0")
+app = FastAPI(title="Clinic Registry API", version="2.0.0")
 
 # CORS middleware
 app.add_middleware(
@@ -345,7 +436,7 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
 # API Routes
 @app.get("/")
 async def root():
-    return {"message": "Shift Management API is running"}
+    return {"message": "Clinic Registry API is running"}
 
 # Authentication endpoints
 @app.post("/token", response_model=Token)
@@ -376,6 +467,22 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/api/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def register(user: UserCreate, db: Session = Depends(get_db)):
+    existing_user = await get_user_by_username(db, user.username)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+
+    user_data = user.dict()
+    user_data['hashed_password'] = get_password_hash(user_data.pop('password'))
+    user_data['is_admin'] = False
+    db_user = User(**user_data)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 @app.get("/api/me", response_model=UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
@@ -476,7 +583,14 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == shift.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    patient_name = None
+    if shift.patient_id:
+        patient = db.query(Patient).filter(Patient.id == shift.patient_id).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        patient_name = patient.full_name
+
     # Создаем смену с данными пользователя
     db_shift = Shift(
         date=shift.date,
@@ -486,6 +600,8 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
         user_id=shift.user_id,
         user_name=user.name,
         position=user.position,
+        patient_id=shift.patient_id,
+        patient_name=patient_name,
         notes=shift.notes
     )
     db.add(db_shift)
@@ -503,7 +619,15 @@ async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db
         user = db.query(User).filter(User.id == shift_data['user_id']).first()
         if not user:
             raise HTTPException(status_code=404, detail=f"User with id {shift_data['user_id']} not found")
-        
+
+        patient_name = None
+        patient_id = shift_data.get('patient_id')
+        if patient_id:
+            patient = db.query(Patient).filter(Patient.id == patient_id).first()
+            if not patient:
+                raise HTTPException(status_code=404, detail=f"Patient with id {patient_id} not found")
+            patient_name = patient.full_name
+
         # Создаем смену с данными пользователя
         db_shift = Shift(
             date=shift_data['date'],
@@ -513,6 +637,8 @@ async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db
             user_id=shift_data['user_id'],
             user_name=user.name,
             position=user.position,
+            patient_id=patient_id,
+            patient_name=patient_name,
             notes=shift_data.get('notes')
         )
         db.add(db_shift)
@@ -544,10 +670,23 @@ async def update_shift(shift_id: int, shift_update: ShiftCreate, db: Session = D
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
-    
-    for key, value in shift_update.dict().items():
+
+    update_data = shift_update.dict()
+
+    patient_name = None
+    patient_id = update_data.pop('patient_id', None)
+    if patient_id:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        patient_name = patient.full_name
+
+    for key, value in update_data.items():
         setattr(shift, key, value)
-    
+
+    shift.patient_id = patient_id
+    shift.patient_name = patient_name
+
     shift.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(shift)
@@ -558,10 +697,145 @@ async def delete_shift(shift_id: int, db: Session = Depends(get_db)):
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
-    
+
     db.delete(shift)
     db.commit()
     return {"message": "Shift deleted successfully"}
+
+# Patient endpoints
+@app.get("/api/patients/", response_model=List[PatientResponse])
+async def get_patients(
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    query = db.query(Patient)
+    if search:
+        pattern = f"%{search.lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(Patient.full_name).like(pattern),
+                func.lower(func.coalesce(Patient.policy_number, "")).like(pattern),
+                func.lower(func.coalesce(Patient.phone, "")).like(pattern)
+            )
+        )
+    return query.order_by(Patient.created_at.desc()).all()
+
+
+@app.post("/api/patients/", response_model=PatientResponse, status_code=status.HTTP_201_CREATED)
+async def create_patient(
+    patient: PatientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    patient_data = patient.dict()
+    last_visit_raw = patient_data.pop("last_visit", None)
+    db_patient = Patient(**patient_data)
+    db_patient.last_visit = parse_optional_datetime(last_visit_raw)
+    db.add(db_patient)
+    db.commit()
+    db.refresh(db_patient)
+    return db_patient
+
+
+@app.get("/api/patients/{patient_id}", response_model=PatientResponse)
+async def get_patient(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patient
+
+
+@app.put("/api/patients/{patient_id}", response_model=PatientResponse)
+async def update_patient(
+    patient_id: int,
+    patient_update: PatientUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    update_data = patient_update.dict(exclude_unset=True)
+    if "last_visit" in update_data:
+        patient.last_visit = parse_optional_datetime(update_data.pop("last_visit"))
+
+    for key, value in update_data.items():
+        setattr(patient, key, value)
+
+    patient.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+@app.delete("/api/patients/{patient_id}")
+async def delete_patient(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    db.delete(patient)
+    db.commit()
+    return {"message": "Patient deleted successfully"}
+
+
+@app.get("/api/dashboard/summary", response_model=DashboardSummary)
+async def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    total_patients = db.query(func.count(Patient.id)).scalar() or 0
+    total_staff = db.query(func.count(User.id)).scalar() or 0
+    active_cases = (
+        db.query(func.count(Asset.id))
+        .filter(Asset.status == "Active")
+        .scalar()
+        or 0
+    )
+
+    all_shifts = db.query(Shift).all()
+    now = datetime.utcnow()
+
+    def shift_start(shift: Shift) -> Optional[datetime]:
+        try:
+            return datetime.strptime(f"{shift.date} {shift.start_time}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            return None
+
+    upcoming = [
+        (start_dt, shift)
+        for shift in all_shifts
+        if (start_dt := shift_start(shift)) and start_dt >= now
+    ]
+    upcoming.sort(key=lambda item: item[0])
+    upcoming_shifts = [item[1] for item in upcoming]
+
+    next_appointments = upcoming_shifts[:5]
+    recent_patients = (
+        db.query(Patient)
+        .order_by(Patient.created_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    return DashboardSummary(
+        total_patients=total_patients,
+        total_staff=total_staff,
+        active_cases=active_cases,
+        upcoming_appointments=len(upcoming_shifts),
+        next_appointments=next_appointments,
+        recent_patients=recent_patients,
+    )
 
 # Asset endpoints
 @app.post("/api/assets/", response_model=AssetResponse)

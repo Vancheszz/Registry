@@ -175,10 +175,10 @@ const HandoversPage: React.FC = () => {
 
       if (editingHandover) {
         await handoversApi.update(editingHandover.id, handoverData);
-        toast.success('Передача смены обновлена');
+        toast.success('Запись обновлена');
       } else {
         await handoversApi.create(handoverData);
-        toast.success('Передача смены создана');
+        toast.success('Запись добавлена');
       }
       
       setShowModal(false);
@@ -190,7 +190,7 @@ const HandoversPage: React.FC = () => {
       loadData();
     } catch (error) {
       console.error('Error creating/updating handover:', error);
-      toast.error('Ошибка при сохранении передачи смены');
+      toast.error('Ошибка при сохранении записи');
     }
   };
 
@@ -252,9 +252,9 @@ const HandoversPage: React.FC = () => {
         'Дата': log.date || 'Не указано',
         'Время': log.time || 'Не указано',
         'Передающий': log.from_shift_user || 'Не указано',
-        'Время смены (от)': log.from_shift_time || 'Не указано',
+        'Время приёма (от)': log.from_shift_time || 'Не указано',
         'Принимающий': log.to_shift_user || 'Не указано',
-        'Время смены (до)': log.to_shift_time || 'Не указано',
+        'Время приёма (до)': log.to_shift_time || 'Не указано',
         'Описание передачи': log.handover_notes || 'Не указано',
         'Активы': log.assets_info || 'Нет активов'
       }));
@@ -280,7 +280,7 @@ const HandoversPage: React.FC = () => {
       link.download = `handovers_export_${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
       
-      toast.success(`Экспортировано ${exportData.total} передач смен`);
+      toast.success(`Экспортировано ${exportData.total} записей журнала`);
     } catch (error: any) {
       console.error('Error exporting data:', error);
       if (error.response?.status === 422) {
@@ -297,11 +297,11 @@ const HandoversPage: React.FC = () => {
 
   // Функция очистки данных
   const handleClearData = async () => {
-    if (!window.confirm('Вы уверены, что хотите удалить ВСЕ передачи смен и логи? Это действие нельзя отменить!')) {
+    if (!window.confirm('Удалить весь журнал наблюдений и связанные логи? Это действие нельзя отменить!')) {
       return;
     }
 
-    if (!window.confirm('Это действие удалит все данные о передачах смен и логи из базы данных. Подтвердите удаление.')) {
+    if (!window.confirm('Это действие удалит все записи журнала и связанные логи из базы данных. Подтвердите удаление.')) {
       return;
     }
 
@@ -333,7 +333,7 @@ const HandoversPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Передачи смен</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Журнал наблюдений</h1>
         <div className="flex gap-2">
           <button
             onClick={handleExport}
@@ -358,7 +358,7 @@ const HandoversPage: React.FC = () => {
             className="btn btn-primary flex items-center gap-2"
           >
             <Plus size={20} />
-            Записать смену
+            Новая запись
           </button>
         </div>
       </div>
@@ -369,7 +369,7 @@ const HandoversPage: React.FC = () => {
           <div key={handover.id} className="card">
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-lg font-semibold text-gray-900">
-                Передача смены #{handover.id}
+                Запись #{handover.id}
               </h3>
               <div className="flex gap-2">
                 <button
@@ -380,7 +380,7 @@ const HandoversPage: React.FC = () => {
                 </button>
                 <button
                   onClick={async () => {
-                    if (!window.confirm('Удалить эту запись передачи смены?')) return;
+                    if (!window.confirm('Удалить запись журнала?')) return;
                     try {
                       await handoversApi.delete(handover.id);
                       toast.success('Запись удалена');
@@ -398,14 +398,14 @@ const HandoversPage: React.FC = () => {
 
             {/* Shift Information */}
             <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">Информация о сменах</h4>
+              <h4 className="font-medium text-gray-900 mb-2">Информация о приёмах</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="font-medium">Передающая смена:</span>
+                  <span className="font-medium">Предыдущий приём:</span>
                   <p className="text-gray-600">{getShiftInfo(handover.from_shift_id)}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Принимающая смена:</span>
+                  <span className="font-medium">Следующий приём:</span>
                   <p className="text-gray-600">{getShiftInfo(handover.to_shift_id)}</p>
                 </div>
               </div>
@@ -483,14 +483,14 @@ const HandoversPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
           <div className="bg-white rounded-lg p-6 w-full max-w-none overflow-auto resizable-modal modal-panel modal-wide">
             <h2 className="text-xl font-bold mb-4">
-              {editingHandover ? 'Редактировать передачу смены' : 'Записать смену'}
+              {editingHandover ? 'Редактировать запись' : 'Добавить запись'}
             </h2>
             <form onSubmit={handleSubmit(handleCreateHandover)}>
               {/* Shift Selection */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Передающая смена
+                    Предыдущий приём
                     {selectedActiveShift && (
                       <span className="text-blue-600 text-xs ml-2">
                         (выбрана активная: {selectedActiveShift.user_name})
@@ -501,7 +501,7 @@ const HandoversPage: React.FC = () => {
                     {...register('from_shift_id')}
                     className="w-full border rounded-lg px-3 py-2"
                   >
-                    <option value="">Выберите смену</option>
+                    <option value="">Выберите приём</option>
                     {shifts.map((shift) => (
                       <option 
                         key={shift.id} 
@@ -516,7 +516,7 @@ const HandoversPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Принимающая смена
+                    Следующий приём
                     {suggestedToShift && (
                       <span className="text-green-600 text-xs ml-2">
                         (автопредложение: {suggestedToShift.user_name})
@@ -527,7 +527,7 @@ const HandoversPage: React.FC = () => {
                     {...register('to_shift_id')}
                     className="w-full border rounded-lg px-3 py-2"
                   >
-                    <option value="">Выберите смену</option>
+                    <option value="">Выберите приём</option>
                     {shifts.map((shift) => (
                       <option 
                         key={shift.id} 
@@ -610,7 +610,7 @@ const HandoversPage: React.FC = () => {
                   type="submit"
                   className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 >
-                  {editingHandover ? 'Сохранить изменения' : 'Записать смену'}
+                  {editingHandover ? 'Сохранить изменения' : 'Сохранить запись'}
                 </button>
                 <button
                   type="button"

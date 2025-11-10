@@ -9,9 +9,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./shifts.db
+      - DATABASE_URL=sqlite:////app/data/clinic.db
     volumes:
-      - ./backend/shifts.db:/app/shifts.db
+      - ./backend/data:/app/data
       - ./backend/logs:/app/logs
     restart: unless-stopped
     healthcheck:
