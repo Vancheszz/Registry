@@ -11,130 +11,193 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import os
 
-# Authentication setup
+# ==========================
+#   НАСТРОЙКИ АУТЕНТИФИКАЦИИ
+# ==========================
+
+# Секретный ключ для подписи JWT-токенов
+# В продакшене ОБЯЗАТЕЛЬНО заменить на надёжный ключ из переменных окружения
 SECRET_KEY = "your-secret-key-here-change-in-production"
+
+# Алгоритм подписи JWT
 ALGORITHM = "HS256"
+
+# Время жизни access-токена (в минутах)
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Контекст для хэширования и проверки паролей (используется bcrypt)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Схема OAuth2: токен берётся из заголовка Authorization: Bearer <token>
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Database setup
+
+# ==================
+#   НАСТРОЙКА БАЗЫ
+# ==================
+
+# URL базы данных.
+# По умолчанию используется SQLite-файл clinic.db в текущей директории.
+# Можно переопределить через переменную окружения DATABASE_URL.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./clinic.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+
+# Создаём движок SQLAlchemy.
+# Для SQLite нужно явно отключить проверку "check_same_thread".
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+)
+
+# Фабрика сессий для работы с БД
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Базовый класс для декларативных моделей
 Base = declarative_base()
 
-# Database Models
+
+# ===================
+#   МОДЕЛИ БАЗЫ ДАННЫХ
+# ===================
+
 class User(Base):
+    """Модель пользователя системы (сотрудник клиники)."""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    name = Column(String, nullable=False)
-    position = Column(String, nullable=False)
-    phone = Column(String, nullable=True)
-    telegram_id = Column(String, nullable=True)
-    email = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    username = Column(String, unique=True, nullable=False)      # Логин для входа
+    hashed_password = Column(String, nullable=False)            # Хэш пароля
+    name = Column(String, nullable=False)                       # Отображаемое имя
+    position = Column(String, nullable=False)                   # Должность
+    phone = Column(String, nullable=True)                       # Телефон
+    telegram_id = Column(String, nullable=True)                 # Telegram ID (если используется)
+    email = Column(String, nullable=True)                       # Email
+    is_active = Column(Boolean, default=True)                   # Активен ли пользователь
+    is_admin = Column(Boolean, default=False)                   # Администратор или нет
+    created_at = Column(DateTime, default=datetime.utcnow)      # Дата создания записи
+
 
 class Shift(Base):
+    """Модель смены/приёма (слот расписания)."""
     __tablename__ = "shifts"
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(String, nullable=False)  # YYYY-MM-DD format
-    start_time = Column(String, nullable=False)  # HH:MM format
-    end_time = Column(String, nullable=False)  # HH:MM format
-    shift_type = Column(String, nullable=False)  # appointment type (consultation, follow-up, etc.)
-    user_id = Column(Integer, nullable=False)
-    user_name = Column(String, nullable=False)
-    position = Column(String, nullable=False)
-    patient_id = Column(Integer, nullable=True)
-    patient_name = Column(String, nullable=True)
-    status = Column(String, default="scheduled")  # scheduled, completed, cancelled
-    notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    date = Column(String, nullable=False)          # Дата смены в формате YYYY-MM-DD
+    start_time = Column(String, nullable=False)    # Время начала (HH:MM)
+    end_time = Column(String, nullable=False)      # Время окончания (HH:MM)
+    shift_type = Column(String, nullable=False)    # Тип смены/приёма (консультация, осмотр и т.п.)
+    user_id = Column(Integer, nullable=False)      # ID сотрудника
+    user_name = Column(String, nullable=False)     # Имя сотрудника (денормализация для удобства)
+    position = Column(String, nullable=False)      # Должность сотрудника
+    patient_id = Column(Integer, nullable=True)    # ID пациента (если привязан)
+    patient_name = Column(String, nullable=True)   # Имя пациента (денормализация)
+    status = Column(String, default="scheduled")   # Статус: scheduled, completed, cancelled
+    notes = Column(Text)                           # Заметки к смене/приёму
+    created_at = Column(DateTime, default=datetime.utcnow)                       # Когда создано
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Когда обновлено
 
 
 class Patient(Base):
+    """Модель пациента клиники."""
     __tablename__ = "patients"
 
     id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String, nullable=False)
-    birth_date = Column(String, nullable=True)
-    gender = Column(String, nullable=True)
-    phone = Column(String, nullable=True)
-    email = Column(String, nullable=True)
-    address = Column(String, nullable=True)
-    policy_number = Column(String, nullable=True)
-    blood_type = Column(String, nullable=True)
-    allergies = Column(Text, nullable=True)
-    chronic_conditions = Column(Text, nullable=True)
-    medications = Column(Text, nullable=True)
-    attending_physician = Column(String, nullable=True)
-    last_visit = Column(DateTime, nullable=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    full_name = Column(String, nullable=False)         # ФИО пациента
+    birth_date = Column(String, nullable=True)         # Дата рождения (строкой)
+    gender = Column(String, nullable=True)             # Пол
+    phone = Column(String, nullable=True)              # Телефон
+    email = Column(String, nullable=True)              # Email
+    address = Column(String, nullable=True)            # Адрес
+    policy_number = Column(String, nullable=True)      # Номер полиса / страховки
+    blood_type = Column(String, nullable=True)         # Группа крови
+    allergies = Column(Text, nullable=True)            # Аллергии
+    chronic_conditions = Column(Text, nullable=True)   # Хронические заболевания
+    medications = Column(Text, nullable=True)          # Принимаемые препараты
+    attending_physician = Column(String, nullable=True) # Лечащий врач
+    last_visit = Column(DateTime, nullable=True)       # Дата последнего визита (как datetime)
+    notes = Column(Text, nullable=True)                # Дополнительные примечания
+    created_at = Column(DateTime, default=datetime.utcnow)                       # Когда создано
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Когда обновлено
+
 
 class Asset(Base):
+    """Модель 'актива' — кейс, запрос, задача и т.п."""
     __tablename__ = "assets"
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    asset_type = Column(String, nullable=False)  # CASE, CHANGE_MANAGEMENT, ORANGE_CASE, CLIENT_REQUESTS
-    status = Column(String, nullable=False)  # Active, Completed, On Hold
+    title = Column(String, nullable=False)             # Заголовок актива
+    description = Column(Text, nullable=False)         # Описание
+    asset_type = Column(String, nullable=False)        # CASE, CHANGE_MANAGEMENT, ORANGE_CASE, CLIENT_REQUESTS
+    status = Column(String, nullable=False)            # Статус: Active, Completed, On Hold
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+
 class ShiftHandover(Base):
+    """Передача смены (связь между сменами и общие заметки)."""
     __tablename__ = "shift_handovers"
     
     id = Column(Integer, primary_key=True, index=True)
-    from_shift_id = Column(Integer, nullable=True)
-    to_shift_id = Column(Integer, nullable=True)
-    handover_notes = Column(Text, nullable=False)
+    from_shift_id = Column(Integer, nullable=True)     # ID смены, которая передаёт
+    to_shift_id = Column(Integer, nullable=True)       # ID смены, которая принимает
+    handover_notes = Column(Text, nullable=False)      # Описание передачи (что передано, текущий статус дел)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class HandoverAsset(Base):
+    """Связь 'передача смены' ↔ 'активы', которые передаются."""
     __tablename__ = "handover_assets"
     
     id = Column(Integer, primary_key=True, index=True)
-    handover_id = Column(Integer, nullable=False)
-    asset_id = Column(Integer, nullable=False)
-    notes = Column(Text, nullable=True)
-    status = Column(String, nullable=True)
+    handover_id = Column(Integer, nullable=False)      # ID записи передачи смены
+    asset_id = Column(Integer, nullable=False)         # ID актива
+    notes = Column(Text, nullable=True)                # Дополнительные примечания по активу
+    status = Column(String, nullable=True)             # Статус актива в рамках передачи (опционально)
+
 
 class HandoverLog(Base):
+    """
+    Упрощённый лог передачи смены.
+    Эти данные используются для экспорта (например, в Excel) без сложных джойнов.
+    """
     __tablename__ = "handover_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    log_date = Column(String, nullable=False)
-    log_time = Column(String, nullable=False)
-    from_shift_user = Column(String, nullable=False)
-    from_shift_time = Column(String, nullable=False)
-    to_shift_user = Column(String, nullable=False)
-    to_shift_time = Column(String, nullable=False)
-    handover_notes = Column(Text, nullable=False)
-    assets_info = Column(Text, nullable=False)  # JSON string
+    log_date = Column(String, nullable=False)          # Дата логирования (строкой)
+    log_time = Column(String, nullable=False)          # Время логирования (строкой)
+    from_shift_user = Column(String, nullable=False)   # Сотрудник, сдающий смену
+    from_shift_time = Column(String, nullable=False)   # Интервал его смены
+    to_shift_user = Column(String, nullable=False)     # Сотрудник, принимающий смену
+    to_shift_time = Column(String, nullable=False)     # Интервал его смены
+    handover_notes = Column(Text, nullable=False)      # Основной текст передачи
+    assets_info = Column(Text, nullable=False)         # Информация об активах (в виде строки/JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Authentication functions
+
+# =======================
+#   ФУНКЦИИ АУТЕНТИФИКАЦИИ
+# =======================
+
 def verify_password(plain_password, hashed_password):
+    """Проверка пароля пользователя: сравниваем введённый пароль с хэшем в базе."""
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def get_password_hash(password):
+    """Хэшируем пароль для сохранения в базе."""
     return pwd_context.hash(password)
 
+
 async def get_user_by_username(db: Session, username: str):
+    """Получить пользователя по username."""
     return db.query(User).filter(User.username == username).first()
 
+
 async def authenticate_user(db: Session, username: str, password: str):
+    """
+    Аутентифицируем пользователя:
+    - ищем его по username
+    - проверяем пароль
+    """
     user = await get_user_by_username(db, username)
     if not user:
         return False
@@ -142,18 +205,33 @@ async def authenticate_user(db: Session, username: str, password: str):
         return False
     return user
 
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """
+    Создание JWT access-токена.
+    В payload добавляется поле 'exp' — время истечения токена.
+    """
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
+        # Если срок не передан, по умолчанию 15 минут
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
+    # Кодируем токен с использованием секретного ключа и алгоритма
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
 def parse_optional_datetime(value: Optional[str]) -> Optional[datetime]:
+    """
+    Универсальный парсер даты/даты-времени.
+    Поддерживает строки формата:
+    - YYYY-MM-DD
+    - ISO-формат (YYYY-MM-DDTHH:MM:SS и т.п.)
+    
+    Возвращает datetime или None в случае ошибки.
+    """
     if not value:
         return None
     try:
@@ -164,8 +242,14 @@ def parse_optional_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-# Pydantic Models
+# =====================
+#   Pydantic-схемы (API)
+# =====================
+
+# ----- Пользователи -----
+
 class UserCreate(BaseModel):
+    """Данные для создания/обновления пользователя (входящие в API)."""
     username: str
     password: str
     name: str
@@ -175,18 +259,26 @@ class UserCreate(BaseModel):
     email: Optional[str] = None
     is_admin: Optional[bool] = False
 
+
 class UserLogin(BaseModel):
+    """Данные для логина через /api/login."""
     username: str
     password: str
 
+
 class Token(BaseModel):
+    """Ответ при успешной аутентификации (JWT-токен)."""
     access_token: str
     token_type: str
 
+
 class TokenData(BaseModel):
+    """Данные, извлекаемые из токена (минимум username)."""
     username: Optional[str] = None
 
+
 class UserResponse(BaseModel):
+    """Схема пользователя для ответов API."""
     id: int
     username: str
     name: str
@@ -199,16 +291,23 @@ class UserResponse(BaseModel):
     created_at: datetime
     
     class Config:
+        # Позволяет создавать модель напрямую из ORM-объекта SQLAlchemy
         from_attributes = True
 
+
 class ProfileUpdate(BaseModel):
+    """Схема для обновления своего профиля."""
     name: str
     position: str
     phone: Optional[str] = None
     telegram_id: Optional[str] = None
     email: Optional[str] = None
 
+
+# ----- Смены -----
+
 class ShiftCreate(BaseModel):
+    """Данные для создания или обновления смены."""
     date: str
     start_time: str
     end_time: str
@@ -217,7 +316,9 @@ class ShiftCreate(BaseModel):
     patient_id: Optional[int] = None
     notes: Optional[str] = None
 
+
 class ShiftResponse(BaseModel):
+    """Смена в ответах API."""
     id: int
     date: str
     start_time: str
@@ -237,7 +338,10 @@ class ShiftResponse(BaseModel):
         from_attributes = True
 
 
+# ----- Пациенты -----
+
 class PatientCreate(BaseModel):
+    """Данные для создания пациента."""
     full_name: str
     birth_date: Optional[str] = None
     gender: Optional[str] = None
@@ -255,10 +359,12 @@ class PatientCreate(BaseModel):
 
 
 class PatientUpdate(PatientCreate):
+    """Для обновления пациента используем те же поля, что и для создания."""
     pass
 
 
 class PatientResponse(BaseModel):
+    """Пациент в ответах API."""
     id: int
     full_name: str
     birth_date: Optional[str]
@@ -281,7 +387,15 @@ class PatientResponse(BaseModel):
         from_attributes = True
 
 
+# ----- Дашборд -----
+
 class DashboardSummary(BaseModel):
+    """
+    Сводная информация для дашборда:
+    - количество пациентов, сотрудников, активных кейсов
+    - ближайшие приёмы
+    - последние добавленные пациенты
+    """
     total_patients: int
     total_staff: int
     active_cases: int
@@ -290,13 +404,18 @@ class DashboardSummary(BaseModel):
     recent_patients: List[PatientResponse]
 
 
+# ----- Активы -----
+
 class AssetCreate(BaseModel):
+    """Данные для создания актива."""
     title: str
     description: str
     asset_type: str  # CASE, CHANGE_MANAGEMENT, ORANGE_CASE, CLIENT_REQUESTS
-    status: str  # Active, Completed, On Hold
+    status: str      # Active, Completed, On Hold
+
 
 class AssetResponse(BaseModel):
+    """Актив в ответах API."""
     id: int
     title: str
     description: str
@@ -308,19 +427,27 @@ class AssetResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class AssetUpdate(BaseModel):
+    """Частичное обновление актива (все поля опциональны)."""
     title: Optional[str] = None
     description: Optional[str] = None
     asset_type: Optional[str] = None
     status: Optional[str] = None
 
+
+# ----- Передачи смен -----
+
 class HandoverCreate(BaseModel):
+    """Данные для создания/обновления передачи смены."""
     from_shift_id: Optional[int] = None
     to_shift_id: Optional[int] = None
     handover_notes: str
-    asset_ids: List[int]
+    asset_ids: List[int]  # Список ID активов, которые передаются
+
 
 class HandoverResponse(BaseModel):
+    """Передача смены в ответах API."""
     id: int
     from_shift_id: Optional[int]
     to_shift_id: Optional[int]
@@ -328,7 +455,11 @@ class HandoverResponse(BaseModel):
     assets: List[AssetResponse]
     created_at: datetime
 
+
+# ----- Экспорт логов передач -----
+
 class ExportHandoverData(BaseModel):
+    """Структура для экспорта логов передач (расширенная, но сейчас не используется в эндпоинтах)."""
     id: int
     date: str
     time: str
@@ -345,14 +476,18 @@ class ExportHandoverData(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ExportResponse(BaseModel):
+    """Обёртка для экспорта: массив данных + общее количество."""
     data: List[ExportHandoverData]
     total: int
     
     class Config:
         from_attributes = True
 
+
 class HandoverLogCreate(BaseModel):
+    """Входные данные для создания упрощённого лога (прямо не используются в текущем коде)."""
     log_date: str
     log_time: str
     from_shift_user: str
@@ -362,7 +497,9 @@ class HandoverLogCreate(BaseModel):
     handover_notes: str
     assets_info: str
 
+
 class HandoverLogResponse(BaseModel):
+    """Ответ по логам передач смен."""
     id: int
     log_date: str
     log_time: str
@@ -377,13 +514,27 @@ class HandoverLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Create tables
+
+# =======================
+#   СОЗДАНИЕ ТАБЛИЦ В БД
+# =======================
+
 Base.metadata.create_all(bind=engine)
 
-# FastAPI app
+
+# ====================
+#   ИНИЦИАЛИЗАЦИЯ FastAPI
+# ====================
+
+# Основное приложение FastAPI
 app = FastAPI(title="Clinic Registry API", version="2.0.0")
 
-# CORS middleware
+# ==================
+#   CORS МИДДЛВАРЬ
+# ==================
+
+# Настройка CORS, чтобы фронтенд (даже с другого домена) мог обращаться к API.
+# В продакшене лучше явно перечислить разрешённые домены вместо ["*"].
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # В продакшене указать конкретные домены
@@ -392,40 +543,70 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Dependency
+
+# ==========================
+#   ЗАВИСИМОСТИ (DEPENDENCIES)
+# ==========================
+
 def get_db():
+    """
+    Зависимость для получения сессии БД.
+    Используется в эндпоинтах через Depends.
+    По завершении запроса сессия будет закрыта.
+    """
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """
+    Получить текущего пользователя по JWT-токену:
+    - декодируем токен
+    - достаём username
+    - ищем пользователя в БД
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        # Декодируем токен и извлекаем subject (username)
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
         token_data = TokenData(username=username)
     except JWTError:
+        # Токен повреждён/просрочен
         raise credentials_exception
+
+    # Ищем пользователя в БД
     user = await get_user_by_username(db, username=token_data.username)
     if user is None:
         raise credentials_exception
     return user
 
+
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
+    """
+    Убеждаемся, что текущий пользователь активен.
+    Используется как зависимость во всех эндпоинтах, где нужна авторизация.
+    """
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+
 # Функция проверки админских прав
 async def get_current_admin_user(current_user: User = Depends(get_current_active_user)):
+    """
+    Зависимость для эндпоинтов, доступных только администраторам.
+    Проверяет флаг is_admin у текущего пользователя.
+    """
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -433,29 +614,53 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
         )
     return current_user
 
-# API Routes
+
+# ============
+#   API ROUTES
+# ============
+
 @app.get("/")
 async def root():
+    """Простой health-check эндпоинт: позволяет проверить, что API запущено."""
     return {"message": "Clinic Registry API is running"}
 
-# Authentication endpoints
+
+# ==========================
+#   ЭНДПОИНТЫ АУТЕНТИФИКАЦИИ
+# ==========================
+
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    """
+    OAuth2-совместимый эндпоинт получения токена:
+    принимает form-data: username, password.
+    Используется, например, Swagger UI или внешними клиентами.
+    """
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        # Неверный логин или пароль
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Создаём токен с заданным временем жизни
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 @app.post("/api/login", response_model=Token)
 async def login(user_login: UserLogin, db: Session = Depends(get_db)):
+    """
+    Простой JSON-эндпоинт логина.
+    Принимает {"username": "...", "password": "..."} и возвращает токен.
+    """
     user = await authenticate_user(db, user_login.username, user_login.password)
     if not user:
         raise HTTPException(
@@ -471,12 +676,18 @@ async def login(user_login: UserLogin, db: Session = Depends(get_db)):
 
 @app.post("/api/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Регистрация нового пользователя.
+    Доступно без авторизации (обычно для первичного создания учётки).
+    """
     existing_user = await get_user_by_username(db, user.username)
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
 
+    # Хэшируем пароль и создаём пользователя
     user_data = user.dict()
     user_data['hashed_password'] = get_password_hash(user_data.pop('password'))
+    # На всякий случай не даём создать админа через этот эндпоинт
     user_data['is_admin'] = False
     db_user = User(**user_data)
     db.add(db_user)
@@ -484,13 +695,20 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     return db_user
 
+
 @app.get("/api/me", response_model=UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Получить информацию о текущем авторизованном пользователе."""
     return current_user
 
+
 @app.put("/api/profile", response_model=UserResponse)
-async def update_profile(profile_update: ProfileUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    """Обновить собственный профиль"""
+async def update_profile(
+    profile_update: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Обновить собственный профиль (имя, должность, контакты)."""
     # Обновляем данные текущего пользователя
     for key, value in profile_update.dict().items():
         if hasattr(current_user, key):
@@ -500,9 +718,21 @@ async def update_profile(profile_update: ProfileUpdate, db: Session = Depends(ge
     db.refresh(current_user)
     return current_user
 
-# User endpoints
+
+# =================
+#   ЭНДПОИНТЫ USER
+# =================
+
 @app.post("/api/users/", response_model=UserResponse)
-async def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+async def create_user(
+    user: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """
+    Создание пользователя администратором.
+    Отличается от /api/register тем, что требует админ-права.
+    """
     # Проверяем, не существует ли уже пользователь с таким username
     existing_user = await get_user_by_username(db, user.username)
     if existing_user:
@@ -517,24 +747,49 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db), current_u
     db.refresh(db_user)
     return db_user
 
+
 @app.get("/api/users/", response_model=List[UserResponse])
-async def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+async def get_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Получить список всех пользователей (только для администраторов)."""
     return db.query(User).all()
+
 
 @app.get("/api/users/public", response_model=List[UserResponse])
-async def get_users_public(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    """Получить список всех пользователей (доступно всем авторизованным пользователям)"""
+async def get_users_public(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Получить список всех пользователей (доступно всем авторизованным).
+    Используется, например, для выбора врача в UI.
+    """
     return db.query(User).all()
 
+
 @app.get("/api/users/{user_id}", response_model=UserResponse)
-async def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+async def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Получить пользователя по ID (админ-доступ)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
+
 @app.put("/api/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: int, user_update: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+async def update_user(
+    user_id: int,
+    user_update: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Полное обновление данных пользователя (админ-доступ)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -552,7 +807,8 @@ async def update_user(user_id: int, user_update: UserCreate, db: Session = Depen
     if user_data.get('password'):
         user_data['hashed_password'] = get_password_hash(user_data.pop('password'))
     else:
-        user_data.pop('password', None)  # Удаляем пароль если он пустой
+        # Если пароль пустой, не трогаем существующий хэш
+        user_data.pop('password', None)
     
     for key, value in user_data.items():
         if hasattr(user, key):
@@ -562,8 +818,14 @@ async def update_user(user_id: int, user_update: UserCreate, db: Session = Depen
     db.refresh(user)
     return user
 
+
 @app.delete("/api/users/{user_id}")
-async def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+async def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Удалить пользователя (админ-доступ, нельзя удалить самого себя)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -576,14 +838,23 @@ async def delete_user(user_id: int, db: Session = Depends(get_db), current_user:
     db.commit()
     return {"message": "User deleted successfully"}
 
-# Shift endpoints
+
+# =================
+#   ЭНДПОИНТЫ SHIFT
+# =================
+
 @app.post("/api/shifts/", response_model=ShiftResponse)
 async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
+    """
+    Создать одну смену/приём.
+    Связывает смену с пользователем и, опционально, с пациентом.
+    """
     # Получаем данные пользователя
     user = db.query(User).filter(User.id == shift.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Если указан patient_id — проверяем, что пациент существует
     patient_name = None
     if shift.patient_id:
         patient = db.query(Patient).filter(Patient.id == shift.patient_id).first()
@@ -591,7 +862,7 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Patient not found")
         patient_name = patient.full_name
 
-    # Создаем смену с данными пользователя
+    # Создаем смену с денормализованными данными пользователя и пациента
     db_shift = Shift(
         date=shift.date,
         start_time=shift.start_time,
@@ -609,8 +880,13 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
     db.refresh(db_shift)
     return db_shift
 
+
 @app.post("/api/shifts/bulk", response_model=List[ShiftResponse])
 async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db)):
+    """
+    Пакетное создание смен.
+    Ожидает JSON вида {"shifts": [ {ShiftCreate}, {ShiftCreate}, ... ]}.
+    """
     shifts = shifts_data.get("shifts", [])
     created_shifts = []
     
@@ -646,33 +922,48 @@ async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db
     
     db.commit()
     
+    # Обновляем объекты после коммита
     for shift in created_shifts:
         db.refresh(shift)
     
     return created_shifts
 
+
 @app.get("/api/shifts/", response_model=List[ShiftResponse])
 async def get_shifts(date: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Получить список смен.
+    Можно фильтровать по конкретной дате (YYYY-MM-DD).
+    """
     query = db.query(Shift)
     if date:
         query = query.filter(Shift.date == date)
     return query.order_by(Shift.created_at.desc()).all()
 
+
 @app.get("/api/shifts/{shift_id}", response_model=ShiftResponse)
 async def get_shift(shift_id: int, db: Session = Depends(get_db)):
+    """Получить смену по ID."""
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     return shift
 
+
 @app.put("/api/shifts/{shift_id}", response_model=ShiftResponse)
-async def update_shift(shift_id: int, shift_update: ShiftCreate, db: Session = Depends(get_db)):
+async def update_shift(
+    shift_id: int,
+    shift_update: ShiftCreate,
+    db: Session = Depends(get_db)
+):
+    """Полностью обновить смену по ID."""
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
 
     update_data = shift_update.dict()
 
+    # Обработка пациента (если изменился)
     patient_name = None
     patient_id = update_data.pop('patient_id', None)
     if patient_id:
@@ -681,6 +972,7 @@ async def update_shift(shift_id: int, shift_update: ShiftCreate, db: Session = D
             raise HTTPException(status_code=404, detail="Patient not found")
         patient_name = patient.full_name
 
+    # Обновляем остальные поля смены
     for key, value in update_data.items():
         setattr(shift, key, value)
 
@@ -692,8 +984,10 @@ async def update_shift(shift_id: int, shift_update: ShiftCreate, db: Session = D
     db.refresh(shift)
     return shift
 
+
 @app.delete("/api/shifts/{shift_id}")
 async def delete_shift(shift_id: int, db: Session = Depends(get_db)):
+    """Удалить смену по ID."""
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
@@ -702,13 +996,21 @@ async def delete_shift(shift_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Shift deleted successfully"}
 
-# Patient endpoints
+
+# ===================
+#   ЭНДПОИНТЫ PATIENT
+# ===================
+
 @app.get("/api/patients/", response_model=List[PatientResponse])
 async def get_patients(
     search: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    Получить список пациентов.
+    Если передан search — ищет по ФИО, номеру полиса и телефону (по подстроке, регистр не важен).
+    """
     query = db.query(Patient)
     if search:
         pattern = f"%{search.lower()}%"
@@ -728,6 +1030,10 @@ async def create_patient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    Создать нового пациента.
+    last_visit (если передан строкой) конвертируется в datetime.
+    """
     patient_data = patient.dict()
     last_visit_raw = patient_data.pop("last_visit", None)
     db_patient = Patient(**patient_data)
@@ -744,6 +1050,7 @@ async def get_patient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """Получить пациента по ID."""
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -757,11 +1064,13 @@ async def update_patient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """Обновить данные пациента (частично или полностью)."""
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
     update_data = patient_update.dict(exclude_unset=True)
+    # Отдельно парсим last_visit, если пришёл
     if "last_visit" in update_data:
         patient.last_visit = parse_optional_datetime(update_data.pop("last_visit"))
 
@@ -780,6 +1089,7 @@ async def delete_patient(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """Удалить пациента по ID."""
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -789,11 +1099,24 @@ async def delete_patient(
     return {"message": "Patient deleted successfully"}
 
 
+# ======================
+#   DASHBOARD SUMMARY
+# ======================
+
 @app.get("/api/dashboard/summary", response_model=DashboardSummary)
 async def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    Сводка для дашборда:
+    - всего пациентов
+    - всего сотрудников
+    - активных кейсов
+    - количество будущих приёмов
+    - список ближайших 5 приёмов
+    - список 5 последних пациентов
+    """
     total_patients = db.query(func.count(Patient.id)).scalar() or 0
     total_staff = db.query(func.count(User.id)).scalar() or 0
     active_cases = (
@@ -803,20 +1126,24 @@ async def get_dashboard_summary(
         or 0
     )
 
+    # Получаем все смены и отбираем только будущие
     all_shifts = db.query(Shift).all()
     now = datetime.utcnow()
 
     def shift_start(shift: Shift) -> Optional[datetime]:
+        """Вспомогательная функция: собирает datetime начала смены из date + start_time."""
         try:
             return datetime.strptime(f"{shift.date} {shift.start_time}", "%Y-%m-%d %H:%M")
         except ValueError:
             return None
 
+    # Фильтруем только смены, которые ещё не начались
     upcoming = [
         (start_dt, shift)
         for shift in all_shifts
         if (start_dt := shift_start(shift)) and start_dt >= now
     ]
+    # Сортируем по времени начала
     upcoming.sort(key=lambda item: item[0])
     upcoming_shifts = [item[1] for item in upcoming]
 
@@ -837,14 +1164,24 @@ async def get_dashboard_summary(
         recent_patients=recent_patients,
     )
 
-# Asset endpoints
+
+# =================
+#   ЭНДПОИНТЫ ASSET
+# =================
+
 @app.post("/api/assets/", response_model=AssetResponse)
-async def create_asset(asset: AssetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def create_asset(
+    asset: AssetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Создать новый актив (кейс/запрос/задачу)."""
     db_asset = Asset(**asset.dict())
     db.add(db_asset)
     db.commit()
     db.refresh(db_asset)
     return db_asset
+
 
 @app.get("/api/assets/", response_model=List[AssetResponse])
 async def get_assets(
@@ -854,6 +1191,12 @@ async def get_assets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    """
+    Получить список активов с возможностью фильтрации по:
+    - типу (asset_type)
+    - статусу (status)
+    - поиску по заголовку (search)
+    """
     query = db.query(Asset)
     if asset_type:
         query = query.filter(Asset.asset_type == asset_type)
@@ -863,15 +1206,28 @@ async def get_assets(
         query = query.filter(Asset.title.ilike(f"%{search}%"))
     return query.all()
 
+
 @app.get("/api/assets/{asset_id}", response_model=AssetResponse)
-async def get_asset(asset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def get_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Получить актив по ID."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     return asset
 
+
 @app.put("/api/assets/{asset_id}", response_model=AssetResponse)
-async def update_asset(asset_id: int, asset_update: AssetUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def update_asset(
+    asset_id: int,
+    asset_update: AssetUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Обновить актив (частично)."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -884,8 +1240,14 @@ async def update_asset(asset_id: int, asset_update: AssetUpdate, db: Session = D
     db.refresh(asset)
     return asset
 
+
 @app.delete("/api/assets/{asset_id}")
-async def delete_asset(asset_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def delete_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Удалить актив по ID."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -894,10 +1256,24 @@ async def delete_asset(asset_id: int, db: Session = Depends(get_db), current_use
     db.commit()
     return {"message": "Asset deleted successfully"}
 
-# Handover endpoints
+
+# ====================
+#   ЭНДПОИНТЫ HANDOVER
+# ====================
+
 @app.post("/api/handovers/", response_model=HandoverResponse)
-async def create_handover(handover: HandoverCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    # Создаем handover без asset_ids
+async def create_handover(
+    handover: HandoverCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Создать передачу смены:
+    - связывает from_shift и to_shift (опционально)
+    - связывает с активами (asset_ids)
+    - создаёт упрощённый лог для последующего экспорта
+    """
+    # Создаем handover без списка asset_ids (он обрабатывается отдельно)
     handover_data = handover.dict()
     asset_ids = handover_data.pop('asset_ids')
     
@@ -917,7 +1293,12 @@ async def create_handover(handover: HandoverCreate, db: Session = Depends(get_db
     db.commit()
     
     # Получаем связанные assets для ответа
-    assets = db.query(Asset).join(HandoverAsset, Asset.id == HandoverAsset.asset_id).filter(HandoverAsset.handover_id == db_handover.id).all()
+    assets = (
+        db.query(Asset)
+        .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+        .filter(HandoverAsset.handover_id == db_handover.id)
+        .all()
+    )
     
     # Создаем лог передачи для простого экспорта
     try:
@@ -925,13 +1306,13 @@ async def create_handover(handover: HandoverCreate, db: Session = Depends(get_db
         from_shift = db.query(Shift).filter(Shift.id == db_handover.from_shift_id).first() if db_handover.from_shift_id else None
         to_shift = db.query(Shift).filter(Shift.id == db_handover.to_shift_id).first() if db_handover.to_shift_id else None
         
-        # Подготавливаем информацию об активах
+        # Подготавливаем информацию об активах (простая текстовая строка)
         assets_info_list = []
         for asset in assets:
             assets_info_list.append(f"{asset.title} ({asset.asset_type}): {asset.description}")
         assets_info_str = "; ".join(assets_info_list) if assets_info_list else "Нет активов"
         
-        # Создаем лог
+        # Создаем лог (упрощённую запись для экспорта)
         now = datetime.now()
         handover_log = HandoverLog(
             log_date=now.strftime("%Y-%m-%d"),
@@ -947,8 +1328,8 @@ async def create_handover(handover: HandoverCreate, db: Session = Depends(get_db
         db.commit()
         print(f"Handover log created successfully for handover {db_handover.id}")
     except Exception as e:
+        # Логирование ошибок при создании лога, не ломает основной процесс
         print(f"Error creating handover log: {e}")
-        # Не прерываем основной процесс при ошибке логирования
     
     # Возвращаем HandoverResponse
     return HandoverResponse(
@@ -960,13 +1341,26 @@ async def create_handover(handover: HandoverCreate, db: Session = Depends(get_db
         created_at=db_handover.created_at
     )
 
+
 @app.get("/api/handovers/", response_model=List[HandoverResponse])
-async def get_handovers(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def get_handovers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Получить список всех передач смен.
+    Для каждой передачи также подтягиваются связанные активы.
+    """
     handovers = db.query(ShiftHandover).order_by(ShiftHandover.created_at.desc()).all()
     
     result = []
     for handover in handovers:
-        assets = db.query(Asset).join(HandoverAsset, Asset.id == HandoverAsset.asset_id).filter(HandoverAsset.handover_id == handover.id).all()
+        assets = (
+            db.query(Asset)
+            .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+            .filter(HandoverAsset.handover_id == handover.id)
+            .all()
+        )
         result.append(HandoverResponse(
             id=handover.id,
             from_shift_id=handover.from_shift_id,
@@ -978,13 +1372,24 @@ async def get_handovers(db: Session = Depends(get_db), current_user: User = Depe
     
     return result
 
+
 @app.get("/api/handovers/{handover_id}", response_model=HandoverResponse)
-async def get_handover(handover_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def get_handover(
+    handover_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Получить конкретную передачу смены по ID."""
     handover = db.query(ShiftHandover).filter(ShiftHandover.id == handover_id).first()
     if not handover:
         raise HTTPException(status_code=404, detail="Handover not found")
     
-    assets = db.query(Asset).join(HandoverAsset, Asset.id == HandoverAsset.asset_id).filter(HandoverAsset.handover_id == handover.id).all()
+    assets = (
+        db.query(Asset)
+        .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+        .filter(HandoverAsset.handover_id == handover.id)
+        .all()
+    )
     
     return HandoverResponse(
         id=handover.id,
@@ -995,8 +1400,19 @@ async def get_handover(handover_id: int, db: Session = Depends(get_db), current_
         created_at=handover.created_at
     )
 
+
 @app.put("/api/handovers/{handover_id}", response_model=HandoverResponse)
-async def update_handover(handover_id: int, handover_update: HandoverCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def update_handover(
+    handover_id: int,
+    handover_update: HandoverCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Обновить передачу смены:
+    - меняем информацию о сменах
+    - переопределяем список связанных активов
+    """
     handover = db.query(ShiftHandover).filter(ShiftHandover.id == handover_id).first()
     if not handover:
         raise HTTPException(status_code=404, detail="Handover not found")
@@ -1023,7 +1439,12 @@ async def update_handover(handover_id: int, handover_update: HandoverCreate, db:
     db.refresh(handover)
     
     # Получаем связанные assets для ответа
-    assets = db.query(Asset).join(HandoverAsset, Asset.id == HandoverAsset.asset_id).filter(HandoverAsset.handover_id == handover.id).all()
+    assets = (
+        db.query(Asset)
+        .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+        .filter(HandoverAsset.handover_id == handover.id)
+        .all()
+    )
     
     return HandoverResponse(
         id=handover.id,
@@ -1034,15 +1455,24 @@ async def update_handover(handover_id: int, handover_update: HandoverCreate, db:
         created_at=handover.created_at
     )
 
+
 @app.get("/api/handovers/export")
-async def export_handovers(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    """Экспорт всех передач смен из простых логов"""
+async def export_handovers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Экспорт всех передач смен из упрощённых логов (HandoverLog).
+    Возвращает простой JSON, пригодный для последующей выгрузки в Excel/Google Sheets.
+    
+    Также, если логов ещё нет, создаёт тестовую запись для проверки.
+    """
     
     print(f"=== LOG EXPORT REQUEST START ===")
     print(f"Export request from user: {current_user.username}")
     
     try:
-        # Сначала попробуем создать тестовую запись если нет логов
+        # Сначала проверяем, есть ли уже логи
         logs_count = db.query(HandoverLog).count()
         print(f"Current logs count: {logs_count}")
         
@@ -1068,7 +1498,7 @@ async def export_handovers(db: Session = Depends(get_db), current_user: User = D
         logs = db.query(HandoverLog).order_by(HandoverLog.created_at.desc()).all()
         print(f"Found {len(logs)} handover logs to export")
         
-        # Очень простая структура данных
+        # Очень простая структура данных для экспорта
         export_data = []
         for i, log in enumerate(logs):
             try:
@@ -1086,6 +1516,7 @@ async def export_handovers(db: Session = Depends(get_db), current_user: User = D
                 export_data.append(log_dict)
                 print(f"Processed log {i+1}/{len(logs)}: ID {log.id}")
             except Exception as e:
+                # Если какая-то запись сломана — просто логируем ошибку и продолжаем
                 print(f"Error processing log {log.id}: {e}")
                 continue
         
@@ -1101,6 +1532,7 @@ async def export_handovers(db: Session = Depends(get_db), current_user: User = D
         return result
         
     except Exception as e:
+        # Глобальная обработка ошибок экспорта
         print(f"Log export error: {e}")
         import traceback
         traceback.print_exc()
@@ -1111,10 +1543,19 @@ async def export_handovers(db: Session = Depends(get_db), current_user: User = D
             "success": False
         }
 
+
 @app.delete("/api/handovers/clear")
-async def clear_handovers(db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
-    """Очистка всех передач смен и логов (только для администраторов)"""
-    
+async def clear_handovers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """
+    Очистка всех передач смен и логов (ТОЛЬКО для администраторов).
+    Полностью удаляет:
+    - связи handover_assets
+    - сами handovers
+    - логи handover_logs
+    """
     # Удаляем все связи с активами
     db.query(HandoverAsset).delete()
     
@@ -1134,9 +1575,17 @@ async def clear_handovers(db: Session = Depends(get_db), current_user: User = De
         "deleted_logs": logs_count
     }
 
-# Create default admin user function
+
+# ====================================
+#   СОЗДАНИЕ АДМИНИСТРАТОРА ПО УМОЛЧАНИЮ
+# ====================================
+
 def create_default_admin(db: Session):
-    # Проверяем, есть ли уже администратор
+    """
+    Создаёт администратора по умолчанию, если его ещё нет.
+    Используется при старте приложения.
+    """
+    # Проверяем, есть ли уже администратор с username "Sideffect"
     admin_user = db.query(User).filter(User.username == "Sideffect").first()
     if not admin_user:
         # Создаем администратора по умолчанию
@@ -1152,17 +1601,32 @@ def create_default_admin(db: Session):
         db.commit()
         print("✅ Создан администратор по умолчанию: Sideffect / admin123")
 
-# Create tables (НЕ удаляем существующие данные!)
-# Base.metadata.drop_all(bind=engine)  # ЗАКОММЕНТИРОВАНО - не удаляем данные!
-Base.metadata.create_all(bind=engine)  # Создаем только новые таблицы если их нет
 
-# Create default admin
+# ВАЖНО: мы не дропаем таблицы, чтобы не потерять данные
+# Base.metadata.drop_all(bind=engine)  # ЗАКОММЕНТИРОВАНО - не удаляем данные!
+
+# Создаем только новые таблицы, если их ещё нет
+Base.metadata.create_all(bind=engine)
+
+# При старте приложения создаём дефолтного админа (если ещё не создан)
 db = SessionLocal()
 try:
     create_default_admin(db)
 finally:
     db.close()
 
+
+# =================
+#   ТОЧКА ВХОДА
+# =================
+
 if __name__ == "__main__":
+    """
+    Локальный запуск приложения:
+    python main.py
+
+    Приложение поднимается на 0.0.0.0:8000
+    Swagger UI будет доступен по адресу http://localhost:8000/docs
+    """
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
