@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Download, Trash2, Maximize2, X, CalendarClock, Sparkles, Stethoscope } from 'lucide-react';
-import { handoversApi, shiftsApi } from '../api';
-import { Handover, Shift, CreateHandover, User } from '../types';
+import { handoversApi, shiftsApi } from '../api.ts';
+import { Handover, Shift, CreateHandover, User } from '../types.ts';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { authService } from '../services/auth';
+import { authService } from '../services/auth.ts';
 
 const HandoversPage: React.FC = () => {
   const [handovers, setHandovers] = useState<Handover[]>([]);
