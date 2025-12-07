@@ -1,162 +1,101 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Download, Trash2, Maximize2, X } from 'lucide-react';
-import { handoversApi, shiftsApi, assetsApi } from '../api.ts';
-import { Handover, Shift, Asset, CreateHandover } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Download, Trash2, Maximize2, X, CalendarClock, Sparkles, Stethoscope } from 'lucide-react';
+import { handoversApi, shiftsApi } from '../api';
+import { Handover, Shift, CreateHandover, User } from '../types';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { authService } from '../services/auth';
 
 const HandoversPage: React.FC = () => {
   const [handovers, setHandovers] = useState<Handover[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingHandover, setEditingHandover] = useState<Handover | null>(null);
-  const [selectedAssets, setSelectedAssets] = useState<number[]>([]);
-  const [showAssetDetail, setShowAssetDetail] = useState(false);
-  const [selectedAssetDetail, setSelectedAssetDetail] = useState<Asset | null>(null);
   const [fullscreenNotes, setFullscreenNotes] = useState<string | null>(null);
-
-  const [suggestedToShift, setSuggestedToShift] = useState<Shift | null>(null);
-  const [selectedActiveShift, setSelectedActiveShift] = useState<Shift | null>(null);
+  const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [selectedShiftIdsForClear, setSelectedShiftIdsForClear] = useState<number[]>([]);
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<CreateHandover>();
-  const watchedFromShift = watch('from_shift_id');
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateHandover>();
 
   useEffect(() => {
     loadData();
   }, []);
 
-  // Функция для поиска следующей смены по графику
-  const findNextShift = useCallback((fromShift: Shift): Shift | null => {
-    const fromDate = new Date(fromShift.date);
-    let targetDate: Date;
-    let targetType: string;
-
-    if (fromShift.shift_type === 'day') {
-      // Если дневная смена, ищем ночную того же дня
-      targetDate = new Date(fromDate);
-      targetType = 'night';
-    } else {
-      // Если ночная смена, ищем дневную следующего дня
-      targetDate = new Date(fromDate);
-      targetDate.setDate(targetDate.getDate() + 1);
-      targetType = 'day';
-    }
-
-    const targetDateStr = targetDate.toISOString().split('T')[0];
-    
-    // Ищем смену на целевую дату с целевым типом
-    const candidateShifts = shifts.filter(shift => 
-      shift.date === targetDateStr && 
-      shift.shift_type === targetType
-    );
-
-    // Возвращаем первую найденную смену (можно добавить дополнительную логику выбора)
-    return candidateShifts.length > 0 ? candidateShifts[0] : null;
-  }, [shifts]);
-
-  // Отслеживаем изменение выбранной "передающей смены" и предлагаем следующую
   useEffect(() => {
-    if (watchedFromShift && shifts.length > 0) {
-      const fromShift = shifts.find(s => s.id === parseInt(watchedFromShift.toString()));
-      if (fromShift) {
-        const nextShift = findNextShift(fromShift);
-        setSuggestedToShift(nextShift);
-        if (nextShift) {
-          setValue('to_shift_id', nextShift.id);
-        }
-      }
-    }
-  }, [watchedFromShift, shifts, setValue, findNextShift]);
-
-  // Функция для поиска активной смены
-  const findActiveShift = (): Shift | null => {
-    const now = new Date();
-    
-    // Проходим по всем сменам и ищем активную
-    for (const shift of shifts) {
-      const shiftDate = new Date(shift.date);
-      const [startHour, startMinute] = shift.start_time.split(':').map(Number);
-      const [endHour, endMinute] = shift.end_time.split(':').map(Number);
-      
-      // Создаем даты начала и конца смены
-      const shiftStart = new Date(shiftDate);
-      shiftStart.setHours(startHour, startMinute, 0, 0);
-      
-      let shiftEnd = new Date(shiftDate);
-      shiftEnd.setHours(endHour, endMinute, 0, 0);
-      
-      // Если время окончания меньше времени начала - смена переходит на следующий день
-      if (endHour < startHour) {
-        shiftEnd.setDate(shiftEnd.getDate() + 1);
-      }
-
-      // Проверяем, активна ли смена сейчас
-      if (now >= shiftStart && now <= shiftEnd) {
-        return shift;
-      }
-    }
-    
-    return null;
-  };
+    if (!currentUser || shifts.length === 0) return;
+    const personal = shifts.filter(shift => shift.user_id === currentUser.id);
+    const active = findActiveShift(personal);
+    setActiveShift(active);
+  }, [shifts, currentUser]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [handoversData, shiftsData, assetsData] = await Promise.all([
+      const [handoversData, shiftsData] = await Promise.all([
         handoversApi.getAll(),
         shiftsApi.getAll(),
-        assetsApi.getAll()
       ]);
       setHandovers(handoversData);
       setShifts(shiftsData);
-      setAssets(assetsData);
+      const me = await authService.getCurrentUser();
+      setCurrentUser(me);
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error('Ошибка загрузки данных');
+      toast.error('Не удалось загрузить журнал наблюдений');
     } finally {
       setLoading(false);
     }
   };
 
-  const openCreateModal = () => {
-    setEditingHandover(null);
-    setSelectedAssets([]);
-    
-    // Ищем активную смену и автоматически выбираем её
-    const activeShift = findActiveShift();
-    setSelectedActiveShift(activeShift);
-    
-    reset({
-      from_shift_id: activeShift ? activeShift.id : undefined,
-      to_shift_id: undefined,
-      handover_notes: '',
-      asset_ids: []
-    });
-    
-    // Если есть активная смена, сразу предлагаем следующую
-    if (activeShift) {
-      const nextShift = findNextShift(activeShift);
-      setSuggestedToShift(nextShift);
-      if (nextShift) {
-        setValue('to_shift_id', nextShift.id);
+  const findActiveShift = (personalShifts: Shift[]): Shift | null => {
+    const now = new Date();
+
+    for (const shift of personalShifts) {
+      const shiftDate = new Date(shift.date);
+      const [startHour, startMinute] = shift.start_time.split(':').map(Number);
+      const [endHour, endMinute] = shift.end_time.split(':').map(Number);
+
+      const shiftStart = new Date(shiftDate);
+      shiftStart.setHours(startHour, startMinute, 0, 0);
+
+      let shiftEnd = new Date(shiftDate);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+      if (endHour < startHour) {
+        shiftEnd.setDate(shiftEnd.getDate() + 1);
+      }
+
+      if (now >= shiftStart && now <= shiftEnd) {
+        return shift;
       }
     }
-    
+
+    return null;
+  };
+
+  const personalShifts = useMemo(() => {
+    if (!currentUser) return shifts;
+    return shifts.filter(shift => shift.user_id === currentUser.id);
+  }, [shifts, currentUser]);
+
+  const openCreateModal = () => {
+    setEditingHandover(null);
+    const defaultShiftId = activeShift?.id || personalShifts[0]?.id || undefined;
+    reset({
+      from_shift_id: defaultShiftId,
+      handover_notes: '',
+    });
     setShowModal(true);
   };
 
   const openEditModal = (handover: Handover) => {
     setEditingHandover(handover);
-    setSelectedAssets(handover.assets.map(asset => asset.id));
     reset({
       from_shift_id: handover.from_shift_id || undefined,
-      to_shift_id: handover.to_shift_id || undefined,
       handover_notes: handover.handover_notes,
-      asset_ids: handover.assets.map(asset => asset.id)
     });
     setShowModal(true);
   };
@@ -167,96 +106,59 @@ const HandoversPage: React.FC = () => {
   };
 
   const handleCreateHandover = async (data: CreateHandover) => {
-    try {
-      const handoverData = {
-        ...data,
-        asset_ids: selectedAssets
-      };
+    const payload: CreateHandover = {
+      from_shift_id: data.from_shift_id ? Number(data.from_shift_id) : undefined,
+      handover_notes: data.handover_notes.trim(),
+      asset_ids: [],
+    };
 
+    if (!payload.from_shift_id) {
+      toast.error('Выберите приём текущего врача');
+      return;
+    }
+
+    try {
       if (editingHandover) {
-        await handoversApi.update(editingHandover.id, handoverData);
+        await handoversApi.update(editingHandover.id, payload);
         toast.success('Запись обновлена');
       } else {
-        await handoversApi.create(handoverData);
+        await handoversApi.create(payload);
         toast.success('Запись добавлена');
       }
-      
+
       setShowModal(false);
       setEditingHandover(null);
-      setSelectedAssets([]);
-      setSelectedActiveShift(null);
-      setSuggestedToShift(null);
       reset();
       loadData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating/updating handover:', error);
-      toast.error('Ошибка при сохранении записи');
+      const detail = error.response?.data?.detail;
+      toast.error(detail || 'Ошибка при сохранении записи');
     }
-  };
-
-  const toggleAssetSelection = (assetId: number) => {
-    setSelectedAssets(prev => 
-      prev.includes(assetId) 
-        ? prev.filter(id => id !== assetId)
-        : [...prev, assetId]
-    );
-  };
-
-  const openAssetDetail = (asset: Asset) => {
-    setSelectedAssetDetail(asset);
-    setShowAssetDetail(true);
   };
 
   const getShiftInfo = (shiftId: number | null | undefined) => {
-    if (!shiftId) return 'Не указана';
-    const shift = shifts.find(s => s.id === shiftId);
-    if (!shift) return 'Не найдена';
-    return `${shift.user_name} (${shift.date} ${shift.start_time}-${shift.end_time})`;
+    if (!shiftId) return null;
+    return shifts.find(s => s.id === shiftId) || null;
   };
 
-  const getAssetTypeDisplay = (type: string) => {
-    switch (type) {
-      case 'CASE': return 'CASE';
-      case 'CHANGE_MANAGEMENT': return 'Change Management';
-      case 'ORANGE_CASE': return 'Orange CASE';
-      case 'CLIENT_REQUESTS': return 'Обращения клиентов';
-      default: return type;
-    }
-  };
-
-  const getAssetStatusColor = (status: string) => {
-    switch (status) {
-      case 'Active': return 'bg-green-100 text-green-800';
-      case 'Completed': return 'bg-blue-100 text-blue-800';
-      case 'On Hold': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Функция экспорта данных
   const handleExport = async () => {
     try {
       setIsExporting(true);
-      console.log('Starting export...');
       const exportData = await handoversApi.export();
-      console.log('Export response:', exportData);
-      
+
       if (!exportData || !exportData.data || exportData.data.length === 0) {
         toast('Нет данных для экспорта', { icon: 'ℹ️' });
         return;
       }
-      
-      // Подготавливаем данные для CSV из простых логов
+
       const csvData = exportData.data.map((log: any) => ({
         'ID': log.id || 'Не указано',
         'Дата': log.date || 'Не указано',
         'Время': log.time || 'Не указано',
-        'Передающий': log.from_shift_user || 'Не указано',
-        'Время приёма (от)': log.from_shift_time || 'Не указано',
-        'Принимающий': log.to_shift_user || 'Не указано',
-        'Время приёма (до)': log.to_shift_time || 'Не указано',
-        'Описание передачи': log.handover_notes || 'Не указано',
-        'Активы': log.assets_info || 'Нет активов'
+        'Врач': log.from_shift_user || 'Не указано',
+        'Время приёма': log.from_shift_time || 'Не указано',
+        'Описание наблюдений': log.handover_notes || 'Не указано',
       }));
 
       if (csvData.length === 0) {
@@ -264,28 +166,24 @@ const HandoversPage: React.FC = () => {
         return;
       }
 
-      // Создаем CSV строку
       const headers = Object.keys(csvData[0] || {});
       const csvContent = [
         headers.join(','),
-        ...csvData.map(row => 
+        ...csvData.map(row =>
           headers.map(header => `"${String((row as any)[header] || '').replace(/"/g, '""')}"`).join(',')
         )
       ].join('\n');
 
-      // Скачиваем файл
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `handovers_export_${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
-      
+
       toast.success(`Экспортировано ${exportData.total} записей журнала`);
     } catch (error: any) {
       console.error('Error exporting data:', error);
-      if (error.response?.status === 422) {
-        toast.error('Ошибка обработки данных на сервере. Проверьте данные передач.');
-      } else if (error.response?.status === 403) {
+      if (error.response?.status === 403) {
         toast.error('Недостаточно прав для экспорта данных');
       } else {
         toast.error('Ошибка при экспорте данных');
@@ -295,21 +193,22 @@ const HandoversPage: React.FC = () => {
     }
   };
 
-  // Функция очистки данных
   const handleClearData = async () => {
-    if (!window.confirm('Удалить весь журнал наблюдений и связанные логи? Это действие нельзя отменить!')) {
-      return;
-    }
+    const hasSelection = selectedShiftIdsForClear.length > 0;
+    const baseConfirm = hasSelection
+      ? 'Удалить все записи журнала для выбранных смен?'
+      : 'Удалить весь журнал наблюдений и связанные логи?';
 
-    if (!window.confirm('Это действие удалит все записи журнала и связанные логи из базы данных. Подтвердите удаление.')) {
+    if (!window.confirm(baseConfirm)) {
       return;
     }
 
     try {
       setIsClearing(true);
-      const result = await handoversApi.clear();
+      const result = await handoversApi.clear(hasSelection ? selectedShiftIdsForClear : undefined);
       toast.success(result.message);
-      loadData(); // Перезагружаем данные
+      setSelectedShiftIdsForClear([]);
+      loadData();
     } catch (error: any) {
       console.error('Error clearing data:', error);
       if (error.response?.status === 403) {
@@ -332,294 +231,218 @@ const HandoversPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Журнал наблюдений</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={handleExport}
-            disabled={isExporting}
-            className="btn btn-secondary flex items-center gap-2"
-            title="Экспорт всех передач в CSV"
-          >
-            <Download size={20} />
-            {isExporting ? 'Экспорт...' : 'Экспорт'}
-          </button>
-          <button
-            onClick={handleClearData}
-            disabled={isClearing}
-            className="btn bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
-            title="Очистить всю базу данных передач"
-          >
-            <Trash2 size={20} />
-            {isClearing ? 'Очистка...' : 'Очистить'}
-          </button>
-          <button
-            onClick={openCreateModal}
-            className="btn btn-primary flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Новая запись
-          </button>
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary-50 via-white to-emerald-50 p-6 border border-primary-100 shadow-sm">
+        <div className="absolute right-6 top-6 text-primary-200">
+          <Sparkles className="w-10 h-10" />
+        </div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+              <span className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-primary-600 text-white">
+                <CalendarClock size={20} />
+              </span>
+              Журнал наблюдений
+            </h1>
+            <p className="text-sm text-gray-600 mt-1">Фиксируйте заметки по текущему приёму врача. Следующий приём и активы больше не требуются.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="btn btn-secondary flex items-center gap-2 rounded-xl"
+              title="Экспорт всех записей в CSV"
+            >
+              <Download size={18} />
+              {isExporting ? 'Экспорт...' : 'Экспорт'}
+            </button>
+            <button
+              onClick={handleClearData}
+              disabled={isClearing}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-xl shadow-sm hover:bg-red-700 disabled:opacity-50 transition"
+              title="Очистить журнал"
+            >
+              <Trash2 size={18} />
+              {isClearing ? 'Очистка...' : 'Очистить'}
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary flex items-center gap-2 rounded-xl"
+            >
+              <Plus size={18} />
+              Новая запись
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <label className="text-xs text-gray-500">Смены для точечной очистки</label>
+            <select
+              multiple
+              value={selectedShiftIdsForClear.map(String)}
+              onChange={(e) => {
+                const selected = Array.from(e.target.selectedOptions).map(opt => Number(opt.value));
+                setSelectedShiftIdsForClear(selected);
+              }}
+              className="w-full border rounded-xl px-3 py-2 bg-white shadow-inner focus:outline-none focus:ring-2 focus:ring-primary-300"
+            >
+              {personalShifts.map(shift => (
+                <option key={shift.id} value={shift.id}>
+                  {shift.date} • {shift.start_time}-{shift.end_time} — {shift.patient_name || shift.user_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {activeShift && (
+            <div className="px-4 py-3 rounded-xl bg-white/70 border border-primary-100 shadow-inner">
+              <p className="text-xs text-gray-500">Активный приём</p>
+              <p className="text-sm font-semibold text-primary-700">{activeShift.user_name}</p>
+              <p className="text-xs text-gray-600">{activeShift.date} · {activeShift.start_time}-{activeShift.end_time}</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Handover Cards */}
-      <div className="grid gap-6">
-        {handovers.map((handover) => (
-          <div key={handover.id} className="card">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Запись #{handover.id}
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => openEditModal(handover)}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
-                >
-                  Редактировать
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!window.confirm('Удалить запись журнала?')) return;
-                    try {
-                      await handoversApi.delete(handover.id);
-                      toast.success('Запись удалена');
-                      loadData();
-                    } catch (e) {
-                      toast.error('Не удалось удалить запись');
-                    }
-                  }}
-                  className="text-red-600 hover:text-red-800 text-sm"
-                >
-                  Удалить
-                </button>
-              </div>
-            </div>
-
-            {/* Shift Information */}
-            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">Информация о приёмах</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="font-medium">Предыдущий приём:</span>
-                  <p className="text-gray-600">{getShiftInfo(handover.from_shift_id)}</p>
+      <div className="grid gap-4">
+        {handovers.length === 0 && (
+          <div className="bg-white/80 border border-dashed border-primary-200 rounded-2xl p-8 text-center text-gray-500 shadow-sm">
+            Записей ещё нет. Добавьте заметку для текущего приёма.
+          </div>
+        )}
+        {handovers.map((handover) => {
+          const shift = getShiftInfo(handover.from_shift_id);
+          return (
+            <div key={handover.id} className="bg-white/90 border border-gray-100 rounded-2xl p-5 shadow hover:shadow-md transition">
+              <div className="flex flex-col md:flex-row md:justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-3 bg-primary-50 text-primary-700 rounded-xl shadow-inner">
+                    <CalendarClock size={18} />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase text-gray-400">Запись #{handover.id}</p>
+                    <p className="text-base font-semibold text-gray-900">{shift?.user_name || 'Текущий врач'}</p>
+                    {shift && (
+                      <p className="text-sm text-gray-600">
+                        {shift.date} • {shift.start_time}-{shift.end_time}
+                      </p>
+                    )}
+                    {shift?.patient_name && (
+                      <p className="flex items-center gap-1 text-sm text-primary-700">
+                        <Stethoscope className="w-4 h-4" /> {shift.patient_name}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <span className="font-medium">Следующий приём:</span>
-                  <p className="text-gray-600">{getShiftInfo(handover.to_shift_id)}</p>
+                <div className="flex gap-2 text-sm">
+                  <button
+                    onClick={() => openEditModal(handover)}
+                    className="px-3 py-2 rounded-lg border border-primary-100 text-primary-700 hover:bg-primary-50 transition"
+                  >
+                    Редактировать
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('Удалить запись журнала?')) return;
+                      try {
+                        await handoversApi.delete(handover.id);
+                        toast.success('Запись удалена');
+                        loadData();
+                      } catch (e) {
+                        toast.error('Не удалось удалить запись');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-lg border border-red-100 text-red-600 hover:bg-red-50 transition"
+                  >
+                    Удалить
+                  </button>
                 </div>
               </div>
-            </div>
 
-            {/* Handover Notes */}
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-900 mb-2">Заметки по передаче:</h4>
-              <div className="relative">
-                <p className="text-gray-600 whitespace-pre-wrap break-words text-wrap-force line-clamp-5">
+              <div className="mt-4 bg-gradient-to-r from-primary-50 via-white to-emerald-50 border border-primary-100 rounded-xl p-4 shadow-inner">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-gray-900">Заметки по приёму</h4>
+                  <button
+                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    onClick={() => setFullscreenNotes(handover.handover_notes)}
+                  >
+                    <Maximize2 size={16} /> Открыть
+                  </button>
+                </div>
+                <p className="text-gray-700 whitespace-pre-wrap break-words text-wrap-force line-clamp-4">
                   {handover.handover_notes}
                 </p>
-                <button
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                  onClick={() => setFullscreenNotes(handover.handover_notes)}
-                >
-                  <Maximize2 size={16} /> Открыть
-                </button>
+              </div>
+
+              <div className="mt-3 text-xs text-gray-500 flex items-center justify-between">
+                <span>Создано: {formatMoscow(handover.created_at)}</span>
+                {shift?.position && <span className="text-gray-400">{shift.position}</span>}
               </div>
             </div>
-
-            {/* Assets */}
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-900 mb-2">
-                Активы ({handover.assets.length})
-              </h4>
-              <div className="grid gap-3">
-                {[
-                  { label: 'CASE', key: 'CASE', ring: 'ring-blue-300', badge: 'bg-blue-100 text-blue-700' },
-                  { label: 'Обращения', key: 'CLIENT_REQUESTS', ring: 'ring-green-300', badge: 'bg-green-100 text-green-700' },
-                  { label: 'Orange CASE', key: 'ORANGE_CASE', ring: 'ring-orange-300', badge: 'bg-orange-100 text-orange-700' },
-                  { label: 'Change Management', key: 'CHANGE_MANAGEMENT', ring: 'ring-purple-300', badge: 'bg-purple-100 text-purple-700' },
-                ].map((grp) => (
-                  <div key={grp.key}>
-                    <div className="text-sm font-semibold text-gray-700 mb-2">{grp.label}</div>
-                    {handover.assets.filter(a => a.asset_type === (grp.key as any)).map((asset) => (
-                      <div
-                        key={asset.id}
-                        onClick={() => openAssetDetail(asset)}
-                        className={`flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors ring-2 ${grp.ring}`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-gray-900 break-words">{asset.title}</span>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAssetStatusColor(asset.status)} ${grp.badge}`}>
-                              {asset.status === 'Active' ? 'Активен' : asset.status === 'Completed' ? 'Завершён' : 'На удержании'}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-600 break-words whitespace-pre-wrap">
-                            {asset.description.length > 100 
-                              ? `${asset.description.substring(0, 100)}...` 
-                              : asset.description}
-                          </p>
-                          <span className="text-xs text-gray-500">
-                            {getAssetTypeDisplay(asset.asset_type)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Created Date */}
-            <div className="text-xs text-gray-500">
-              Создано: {formatMoscow(handover.created_at)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
-          <div className="bg-white rounded-lg p-6 w-full max-w-none overflow-auto resizable-modal modal-panel modal-wide">
-            <h2 className="text-xl font-bold mb-4">
-              {editingHandover ? 'Редактировать запись' : 'Добавить запись'}
-            </h2>
-            <form onSubmit={handleSubmit(handleCreateHandover)}>
-              {/* Shift Selection */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Предыдущий приём
-                    {selectedActiveShift && (
-                      <span className="text-blue-600 text-xs ml-2">
-                        (выбрана активная: {selectedActiveShift.user_name})
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    {...register('from_shift_id')}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="">Выберите приём</option>
-                    {shifts.map((shift) => (
-                      <option 
-                        key={shift.id} 
-                        value={shift.id}
-                        className={selectedActiveShift?.id === shift.id ? 'bg-blue-50' : ''}
-                      >
-                        {shift.user_name} - {shift.date} ({shift.start_time}-{shift.end_time})
-                        {selectedActiveShift?.id === shift.id ? ' ⭐ Активная' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Следующий приём
-                    {suggestedToShift && (
-                      <span className="text-green-600 text-xs ml-2">
-                        (автопредложение: {suggestedToShift.user_name})
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    {...register('to_shift_id')}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="">Выберите приём</option>
-                    {shifts.map((shift) => (
-                      <option 
-                        key={shift.id} 
-                        value={shift.id}
-                        className={suggestedToShift?.id === shift.id ? 'bg-green-50' : ''}
-                      >
-                        {shift.user_name} - {shift.date} ({shift.start_time}-{shift.end_time})
-                        {suggestedToShift?.id === shift.id ? ' ⭐ Рекомендуется' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 modal-overlay">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-3xl shadow-2xl border border-gray-100 modal-panel">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="text-xs uppercase text-gray-400">Заметка</p>
+                <h2 className="text-xl font-bold">{editingHandover ? 'Редактировать запись' : 'Добавить запись'}</h2>
+              </div>
+              <button className="text-gray-500 hover:text-gray-700" onClick={() => setShowModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit(handleCreateHandover)} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Приём текущего врача</label>
+                <select
+                  {...register('from_shift_id')}
+                  className="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                >
+                  <option value="">Выберите приём</option>
+                  {personalShifts.map((shift) => (
+                    <option
+                      key={shift.id}
+                      value={shift.id}
+                      className={activeShift?.id === shift.id ? 'bg-primary-50' : ''}
+                    >
+                      {shift.date} — {shift.start_time}-{shift.end_time} ({shift.patient_name || shift.user_name})
+                    </option>
+                  ))}
+                </select>
+                {errors.from_shift_id && (
+                  <p className="text-red-500 text-sm mt-1">{errors.from_shift_id.message}</p>
+                )}
+                {personalShifts.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">Нет приёмов, связанных с вашей учетной записью.</p>
+                )}
               </div>
 
-              {/* Notes */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">Заметки по передаче *</label>
+              <div>
+                <label className="block text-sm font-medium mb-2">Заметки *</label>
                 <textarea
                   {...register('handover_notes', { required: 'Заметки обязательны' })}
-                  rows={4}
-                  className="w-full border rounded-lg px-3 py-2 textarea-wrap resize-vertical"
-                  style={{ 
-                    wordWrap: 'break-word', 
-                    overflowWrap: 'break-word', 
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    overflowX: 'hidden'
-                  }}
-                  placeholder="Опишите передаваемую информацию..."
+                  rows={5}
+                  className="w-full border rounded-xl px-3 py-2 textarea-wrap resize-vertical focus:outline-none focus:ring-2 focus:ring-primary-300"
+                  placeholder="Опишите наблюдения, рекомендации и дальнейшие шаги для пациента"
                 />
                 {errors.handover_notes && (
                   <p className="text-red-500 text-sm mt-1">{errors.handover_notes.message}</p>
                 )}
               </div>
 
-              {/* Asset Selection */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">Выберите активы</label>
-                <div className="max-h-64 overflow-y-auto border rounded-lg p-3 space-y-4">
-                  {[
-                    { label: 'CASE', color: 'border-blue-300', badge: 'bg-blue-100 text-blue-700' },
-                    { label: 'Обращения', key: 'CLIENT_REQUESTS', color: 'border-green-300', badge: 'bg-green-100 text-green-700' },
-                    { label: 'Orange CASE', key: 'ORANGE_CASE', color: 'border-orange-300', badge: 'bg-orange-100 text-orange-700' },
-                    { label: 'Change Management', key: 'CHANGE_MANAGEMENT', color: 'border-purple-300', badge: 'bg-purple-100 text-purple-700' },
-                  ].map((grp) => (
-                    <div key={grp.key || 'CASE'}>
-                      <div className="text-sm font-semibold text-gray-700 mb-2">{grp.label}</div>
-                      {(assets.filter(a => a.status !== 'Completed' && (
-                        (grp.key ? a.asset_type === (grp.key as any) : a.asset_type === 'CASE')
-                      ))).map((asset) => (
-                        <div
-                          key={asset.id}
-                          className={`flex items-center p-2 rounded-lg mb-2 cursor-pointer transition-colors border ${
-                            selectedAssets.includes(asset.id) ? grp.color + ' bg-white' : 'bg-gray-50 hover:bg-gray-100'
-                          }`}
-                          onClick={() => toggleAssetSelection(asset.id)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedAssets.includes(asset.id)}
-                            onChange={() => toggleAssetSelection(asset.id)}
-                            className="mr-3"
-                          />
-                          <div className="flex-1">
-                            <div className="font-medium text-sm break-words">{asset.title}</div>
-                            <div className="text-xs text-gray-600 break-words">{getAssetTypeDisplay(asset.asset_type)}</div>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAssetStatusColor(asset.status)} ${grp.badge}`}>
-                            {asset.status === 'Active' ? 'Активен' : asset.status === 'Completed' ? 'Завершён' : 'На удержании'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  className="flex-1 bg-primary-600 text-white px-4 py-2 rounded-xl hover:bg-primary-700 transition"
                 >
                   {editingHandover ? 'Сохранить изменения' : 'Сохранить запись'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    setSelectedActiveShift(null);
-                    setSuggestedToShift(null);
-                  }}
-                  className="flex-1 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50"
                 >
                   Отмена
                 </button>
@@ -629,59 +452,11 @@ const HandoversPage: React.FC = () => {
         </div>
       )}
 
-      {/* Asset Detail Modal */}
-      {showAssetDetail && selectedAssetDetail && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 modal-overlay">
-          <div className="bg-white rounded-lg p-6 w-full max-w-none resizable-modal modal-panel">
-            <h2 className="text-xl font-bold mb-4">Детали актива</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Название</label>
-                <p className="text-gray-900">{selectedAssetDetail.title}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
-                <p className="text-gray-900 whitespace-pre-wrap break-words text-wrap-force">
-                  {selectedAssetDetail.description}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Тип</label>
-                <p className="text-gray-900">{getAssetTypeDisplay(selectedAssetDetail.asset_type)}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Статус</label>
-                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${getAssetStatusColor(selectedAssetDetail.status)}`}>
-                  {selectedAssetDetail.status === 'Active' ? 'Активен' : 
-                   selectedAssetDetail.status === 'Completed' ? 'Завершён' : 
-                   selectedAssetDetail.status === 'On Hold' ? 'На удержании' : selectedAssetDetail.status}
-                </span>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Создан</label>
-                <p className="text-gray-600 text-sm">
-                  {formatMoscow(selectedAssetDetail.created_at)}
-                </p>
-              </div>
-            </div>
-            <div className="mt-6">
-              <button
-                onClick={() => setShowAssetDetail(false)}
-                className="w-full bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-              >
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Полноэкранный просмотр заметок */}
       {fullscreenNotes && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 modal-overlay">
-          <div className="bg-white rounded-lg p-6 w-full max-w-none max-h-[85vh] overflow-y-auto resizable-modal modal-panel">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[85vh] overflow-y-auto shadow-2xl modal-panel">
             <div className="flex items-start justify-between mb-4">
-              <h2 className="text-xl font-bold">Заметки по передаче</h2>
+              <h2 className="text-xl font-bold">Заметки по приёму</h2>
               <button className="text-gray-600 hover:text-gray-800" onClick={() => setFullscreenNotes(null)}>
                 <X size={20} />
               </button>
