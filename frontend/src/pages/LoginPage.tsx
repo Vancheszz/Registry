@@ -99,7 +99,7 @@ export default function LoginPage({ onLogin, onRegister }: LoginPageProps) {
                     value={formData.username}
                     onChange={handleInputChange}
                     className="form-input"
-                    placeholder="napример, registrator"
+                    placeholder="например, registrator"
                   />
                 </div>
 
