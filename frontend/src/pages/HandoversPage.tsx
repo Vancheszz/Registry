@@ -232,9 +232,6 @@ const HandoversPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary-50 via-white to-emerald-50 p-6 border border-primary-100 shadow-sm">
-        <div className="absolute right-6 top-6 text-primary-200">
-          <Sparkles className="w-10 h-10" />
-        </div>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
