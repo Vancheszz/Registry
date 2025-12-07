@@ -95,14 +95,14 @@ export const assetsApi = {
 export const handoversApi = {
   getAll: (): Promise<Handover[]> => api.get('/api/handovers/').then(res => res.data),
   getById: (id: number): Promise<Handover> => api.get(`/api/handovers/${id}`).then(res => res.data),
-  create: (handover: CreateHandover): Promise<Handover> => 
+  create: (handover: CreateHandover): Promise<Handover> =>
     api.post('/api/handovers/', handover).then(res => res.data),
-  update: (id: number, handover: CreateHandover): Promise<Handover> => 
+  update: (id: number, handover: CreateHandover): Promise<Handover> =>
     api.put(`/api/handovers/${id}`, handover).then(res => res.data),
   delete: (id: number): Promise<void> => api.delete(`/api/handovers/${id}`).then(() => {}),
   export: (): Promise<any> => api.get('/api/handovers/export').then(res => res.data),
-  clear: (): Promise<{message: string, deleted_count: number}> =>
-    api.delete('/api/handovers/clear').then(res => res.data),
+  clear: (shiftIds?: number[]): Promise<{message: string, deleted_handovers?: number, deleted_logs?: number}> =>
+    api.delete('/api/handovers/clear', { data: { shift_ids: shiftIds || [] } }).then(res => res.data),
 };
 
 // Patients API

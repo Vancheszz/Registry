@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, func, or_
@@ -242,6 +242,17 @@ def parse_optional_datetime(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def append_patient_note(db: Session, patient: Patient, doctor_name: str, shift_date: str, start_time: str, end_time: str):
+    """Добавляет в карточку пациента строку с информацией о назначенном приёме."""
+    note_line = (
+        f"{datetime.utcnow().strftime('%d.%m.%Y %H:%M')} — врач {doctor_name}: "
+        f"назначен приём {shift_date} {start_time}-{end_time}."
+    )
+    existing = (patient.notes or "").strip()
+    patient.notes = f"{existing}\n{note_line}".strip() if existing else note_line
+    patient.updated_at = datetime.utcnow()
+
+
 # =====================
 #   Pydantic-схемы (API)
 # =====================
@@ -441,16 +452,15 @@ class AssetUpdate(BaseModel):
 class HandoverCreate(BaseModel):
     """Данные для создания/обновления передачи смены."""
     from_shift_id: Optional[int] = None
-    to_shift_id: Optional[int] = None
     handover_notes: str
-    asset_ids: List[int]  # Список ID активов, которые передаются
+    # Активы больше не передаются через журнал наблюдений, оставляем поле для обратной совместимости
+    asset_ids: List[int] = []
 
 
 class HandoverResponse(BaseModel):
     """Передача смены в ответах API."""
     id: int
     from_shift_id: Optional[int]
-    to_shift_id: Optional[int]
     handover_notes: str
     assets: List[AssetResponse]
     created_at: datetime
@@ -510,9 +520,14 @@ class HandoverLogResponse(BaseModel):
     handover_notes: str
     assets_info: str
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
+
+
+class ClearHandoversRequest(BaseModel):
+    """Параметры очистки журнала наблюдений."""
+    shift_ids: List[int] = []
 
 
 # =======================
@@ -856,6 +871,7 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
 
     # Если указан patient_id — проверяем, что пациент существует
     patient_name = None
+    patient: Optional[Patient] = None
     if shift.patient_id:
         patient = db.query(Patient).filter(Patient.id == shift.patient_id).first()
         if not patient:
@@ -876,6 +892,11 @@ async def create_shift(shift: ShiftCreate, db: Session = Depends(get_db)):
         notes=shift.notes
     )
     db.add(db_shift)
+
+    # Обновляем заметки пациента, если он указан
+    if shift.patient_id and patient:
+        append_patient_note(db, patient, user.name, shift.date, shift.start_time, shift.end_time)
+
     db.commit()
     db.refresh(db_shift)
     return db_shift
@@ -897,6 +918,7 @@ async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db
             raise HTTPException(status_code=404, detail=f"User with id {shift_data['user_id']} not found")
 
         patient_name = None
+        patient: Optional[Patient] = None
         patient_id = shift_data.get('patient_id')
         if patient_id:
             patient = db.query(Patient).filter(Patient.id == patient_id).first()
@@ -919,7 +941,10 @@ async def create_multiple_shifts(shifts_data: dict, db: Session = Depends(get_db
         )
         db.add(db_shift)
         created_shifts.append(db_shift)
-    
+
+        if patient_id and patient:
+            append_patient_note(db, patient, user.name, shift_data['date'], shift_data['start_time'], shift_data['end_time'])
+
     db.commit()
     
     # Обновляем объекты после коммита
@@ -963,8 +988,14 @@ async def update_shift(
 
     update_data = shift_update.dict()
 
+    # Проверяем пользователя, чтобы избежать ссылок на несуществующие записи
+    user = db.query(User).filter(User.id == update_data['user_id']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Обработка пациента (если изменился)
     patient_name = None
+    patient: Optional[Patient] = None
     patient_id = update_data.pop('patient_id', None)
     if patient_id:
         patient = db.query(Patient).filter(Patient.id == patient_id).first()
@@ -976,10 +1007,18 @@ async def update_shift(
     for key, value in update_data.items():
         setattr(shift, key, value)
 
+    # Обновляем денормализованные данные пользователя
+    shift.user_name = user.name
+    shift.position = user.position
+
     shift.patient_id = patient_id
     shift.patient_name = patient_name
 
     shift.updated_at = datetime.utcnow()
+    # Обновляем заметки пациента
+    if patient_id and patient:
+        append_patient_note(db, patient, user.name, shift.date, shift.start_time, shift.end_time)
+
     db.commit()
     db.refresh(shift)
     return shift
@@ -1273,39 +1312,47 @@ async def create_handover(
     - связывает с активами (asset_ids)
     - создаёт упрощённый лог для последующего экспорта
     """
-    # Создаем handover без списка asset_ids (он обрабатывается отдельно)
+    # Проверяем, что выбранная смена принадлежит текущему пользователю
+    if handover.from_shift_id:
+        shift = db.query(Shift).filter(Shift.id == handover.from_shift_id).first()
+        if not shift:
+            raise HTTPException(status_code=404, detail="Shift not found")
+        if shift.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Можно создавать записи только по собственным сменам")
+
+    # Создаем handover без списка asset_ids (активы больше не передаются через журнал)
     handover_data = handover.dict()
-    asset_ids = handover_data.pop('asset_ids')
-    
-    db_handover = ShiftHandover(**handover_data)
+    asset_ids = handover_data.pop('asset_ids', [])
+
+    db_handover = ShiftHandover(**handover_data, to_shift_id=None)
     db.add(db_handover)
     db.commit()
     db.refresh(db_handover)
-    
-    # Создаем связи с assets
-    for asset_id in asset_ids:
-        handover_asset = HandoverAsset(
-            handover_id=db_handover.id,
-            asset_id=asset_id
+
+    # Создаем связи с assets (на будущее, если список был передан)
+    if asset_ids:
+        for asset_id in asset_ids:
+            handover_asset = HandoverAsset(
+                handover_id=db_handover.id,
+                asset_id=asset_id
+            )
+            db.add(handover_asset)
+        db.commit()
+
+    assets = []
+    if asset_ids:
+        assets = (
+            db.query(Asset)
+            .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+            .filter(HandoverAsset.handover_id == db_handover.id)
+            .all()
         )
-        db.add(handover_asset)
-    
-    db.commit()
-    
-    # Получаем связанные assets для ответа
-    assets = (
-        db.query(Asset)
-        .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
-        .filter(HandoverAsset.handover_id == db_handover.id)
-        .all()
-    )
-    
+
     # Создаем лог передачи для простого экспорта
     try:
         # Получаем информацию о сменах
         from_shift = db.query(Shift).filter(Shift.id == db_handover.from_shift_id).first() if db_handover.from_shift_id else None
-        to_shift = db.query(Shift).filter(Shift.id == db_handover.to_shift_id).first() if db_handover.to_shift_id else None
-        
+
         # Подготавливаем информацию об активах (простая текстовая строка)
         assets_info_list = []
         for asset in assets:
@@ -1319,8 +1366,8 @@ async def create_handover(
             log_time=now.strftime("%H:%M:%S"),
             from_shift_user=from_shift.user_name if from_shift else "Не указано",
             from_shift_time=f"{from_shift.start_time}-{from_shift.end_time}" if from_shift else "Не указано",
-            to_shift_user=to_shift.user_name if to_shift else "Не указано",
-            to_shift_time=f"{to_shift.start_time}-{to_shift.end_time}" if to_shift else "Не указано",
+            to_shift_user="—",
+            to_shift_time="—",
             handover_notes=db_handover.handover_notes,
             assets_info=assets_info_str
         )
@@ -1335,7 +1382,6 @@ async def create_handover(
     return HandoverResponse(
         id=db_handover.id,
         from_shift_id=db_handover.from_shift_id,
-        to_shift_id=db_handover.to_shift_id,
         handover_notes=db_handover.handover_notes,
         assets=assets,
         created_at=db_handover.created_at
@@ -1355,16 +1401,18 @@ async def get_handovers(
     
     result = []
     for handover in handovers:
-        assets = (
+        assets = []
+        linked_assets = (
             db.query(Asset)
             .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
             .filter(HandoverAsset.handover_id == handover.id)
             .all()
         )
+        if linked_assets:
+            assets = linked_assets
         result.append(HandoverResponse(
             id=handover.id,
             from_shift_id=handover.from_shift_id,
-            to_shift_id=handover.to_shift_id,
             handover_notes=handover.handover_notes,
             assets=assets,
             created_at=handover.created_at
@@ -1394,7 +1442,6 @@ async def get_handover(
     return HandoverResponse(
         id=handover.id,
         from_shift_id=handover.from_shift_id,
-        to_shift_id=handover.to_shift_id,
         handover_notes=handover.handover_notes,
         assets=assets,
         created_at=handover.created_at
@@ -1419,37 +1466,48 @@ async def update_handover(
     
     # Обновляем данные handover
     handover_data = handover_update.dict()
-    asset_ids = handover_data.pop('asset_ids')
-    
+    asset_ids = handover_data.pop('asset_ids', [])
+
+    if handover_data.get('from_shift_id'):
+        shift = db.query(Shift).filter(Shift.id == handover_data['from_shift_id']).first()
+        if not shift:
+            raise HTTPException(status_code=404, detail="Shift not found")
+        if shift.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Можно редактировать только собственные записи")
+
     for key, value in handover_data.items():
         setattr(handover, key, value)
-    
+
+    # Исторически могла остаться ссылка на принимающую смену, обнуляем её
+    handover.to_shift_id = None
+
     # Удаляем старые связи с assets
     db.query(HandoverAsset).filter(HandoverAsset.handover_id == handover_id).delete()
-    
-    # Создаем новые связи с assets
-    for asset_id in asset_ids:
-        handover_asset = HandoverAsset(
-            handover_id=handover.id,
-            asset_id=asset_id
-        )
-        db.add(handover_asset)
-    
+
+    # Создаем новые связи с assets (если переданы)
+    if asset_ids:
+        for asset_id in asset_ids:
+            handover_asset = HandoverAsset(
+                handover_id=handover.id,
+                asset_id=asset_id
+            )
+            db.add(handover_asset)
+
     db.commit()
     db.refresh(handover)
-    
-    # Получаем связанные assets для ответа
-    assets = (
-        db.query(Asset)
-        .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
-        .filter(HandoverAsset.handover_id == handover.id)
-        .all()
-    )
+
+    assets = []
+    if asset_ids:
+        assets = (
+            db.query(Asset)
+            .join(HandoverAsset, Asset.id == HandoverAsset.asset_id)
+            .filter(HandoverAsset.handover_id == handover.id)
+            .all()
+        )
     
     return HandoverResponse(
         id=handover.id,
         from_shift_id=handover.from_shift_id,
-        to_shift_id=handover.to_shift_id,
         handover_notes=handover.handover_notes,
         assets=assets,
         created_at=handover.created_at
@@ -1546,31 +1604,57 @@ async def export_handovers(
 
 @app.delete("/api/handovers/clear")
 async def clear_handovers(
+    request: ClearHandoversRequest = Body(default=ClearHandoversRequest()),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
     """
-    Очистка всех передач смен и логов (ТОЛЬКО для администраторов).
-    Полностью удаляет:
-    - связи handover_assets
-    - сами handovers
-    - логи handover_logs
+    Очистка передач смен.
+    Можно удалить все записи или только связанные с конкретными сменами.
     """
-    # Удаляем все связи с активами
+    if request.shift_ids:
+        handovers_to_delete = db.query(ShiftHandover).filter(
+            ShiftHandover.from_shift_id.in_(request.shift_ids)
+        ).all()
+
+        if not handovers_to_delete:
+            return {
+                "message": "Передач для выбранных смен не найдено",
+                "deleted_handovers": 0,
+                "deleted_logs": 0
+            }
+
+        handover_ids = [h.id for h in handovers_to_delete]
+        db.query(HandoverAsset).filter(HandoverAsset.handover_id.in_(handover_ids)).delete(synchronize_session=False)
+        deleted_count = db.query(ShiftHandover).filter(ShiftHandover.id.in_(handover_ids)).delete(synchronize_session=False)
+
+        # Очищаем логи, совпадающие по сотруднику и интервалу смены
+        related_shifts = db.query(Shift).filter(Shift.id.in_(request.shift_ids)).all()
+        deleted_logs = 0
+        for shift in related_shifts:
+            deleted_logs += db.query(HandoverLog).filter(
+                HandoverLog.from_shift_user == shift.user_name,
+                HandoverLog.from_shift_time == f"{shift.start_time}-{shift.end_time}"
+            ).delete(synchronize_session=False)
+
+        db.commit()
+
+        return {
+            "message": f"Удалено {deleted_count} записей журнала для выбранных смен",
+            "deleted_handovers": deleted_count,
+            "deleted_logs": deleted_logs
+        }
+
+    # Очистка всех записей
     db.query(HandoverAsset).delete()
-    
-    # Удаляем все передачи смен
     handovers_count = db.query(ShiftHandover).count()
     db.query(ShiftHandover).delete()
-    
-    # Удаляем все логи передач
     logs_count = db.query(HandoverLog).count()
     db.query(HandoverLog).delete()
-    
     db.commit()
-    
+
     return {
-        "message": f"Удалено {handovers_count} передач смен и {logs_count} логов", 
+        "message": f"Удалено {handovers_count} передач смен и {logs_count} логов",
         "deleted_handovers": handovers_count,
         "deleted_logs": logs_count
     }

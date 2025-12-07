@@ -55,9 +55,8 @@ export interface UpdateAsset {
 export interface Handover {
   id: number;
   from_shift_id?: number;
-  to_shift_id?: number;
   handover_notes: string;
-  assets: Asset[];
+  assets?: Asset[];
   created_at: string;
 }
 
@@ -102,9 +101,8 @@ export interface CreateShift {
 
 export interface CreateHandover {
   from_shift_id?: number;
-  to_shift_id?: number;
   handover_notes: string;
-  asset_ids: number[];
+  asset_ids?: number[];
 }
 
 export interface Patient {

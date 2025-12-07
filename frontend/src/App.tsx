@@ -130,7 +130,6 @@ function App() {
       toast.success('Вход выполнен успешно!');
     } catch (error) {
       toast.error('Ошибка входа. Проверьте логин и пароль.');
-      throw error;
     }
   };
 
@@ -145,7 +144,6 @@ function App() {
     } catch (error) {
       console.error('Registration error:', error);
       toast.error('Не удалось создать аккаунт. Попробуйте другой логин.');
-      throw error;
     }
   };
 
