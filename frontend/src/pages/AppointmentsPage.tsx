@@ -254,7 +254,9 @@ const AppointmentsPage: React.FC = () => {
       loadData();
     } catch (error) {
       console.error('Error creating/updating shift:', error);
-      toast.error('Ошибка при сохранении смены');
+      // @ts-ignore
+      const detail = error?.response?.data?.detail;
+      toast.error(detail || 'Ошибка при сохранении смены');
     }
   };
 
