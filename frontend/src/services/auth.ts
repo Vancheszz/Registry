@@ -1,6 +1,8 @@
 import { LoginUser, AuthToken, User, CreateUser } from '../types';
 
-const API_BASE_URL = 'http://localhost:28080';
+const API_BASE_URL = window.location.pathname.includes('/registry')
+  ? `${window.location.origin}/registry`
+  : 'http://localhost:28080';
 const TOKEN_KEY = 'access_token';
 
 export const authService = {
