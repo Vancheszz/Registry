@@ -41,16 +41,18 @@ class RegistryUser(HttpUser):
         return None
 
     @task
-    def массовый_вход(self):
+    def multiply_login(self):
         """Повторный вход для проверки аутентификации под нагрузкой."""
+        """Массовый вход """
         self.client.post(
             "/api/login",
             json={"username": self.username, "password": self.password},
         )
 
     @task
-    def массовая_запись_на_приём(self):
+    def multiply_reg_for_appointment(self):
         """Создание большого числа слотов/приёмов для врача."""
+        """массовая запись на приём к врачу"""
         if not self._user_id:
             self._authenticate()
             if not self._user_id:
@@ -68,8 +70,9 @@ class RegistryUser(HttpUser):
         self.client.post("/api/shifts/", json=payload)
 
     @task
-    def запись_наблюдения_в_журнал(self):
+    def rec_observations_in_log(self):
         """Запись заметки врача в журнал передачи смен после создания слота."""
+        """Запись наблюдения в журнал"""
         if not self._user_id:
             return
 
